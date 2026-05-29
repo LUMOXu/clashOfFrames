@@ -1,6 +1,7 @@
 # Clash of Frames
 
 Dependency-free local/LAN multiplayer web game. One Node.js process serves the frontend, JSON APIs, and Server-Sent Events.
+**Created with good vibes**
 
 ## Run Locally
 
