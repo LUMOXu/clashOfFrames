@@ -23,7 +23,7 @@ function parseManifest(text) {
 }
 
 function parseCardFile(fileName) {
-  const match = /^(\d+)([a-z]+)\.png$/i.exec(fileName);
+  const match = /^(\d+)([a-z]+)\.(?:png|jpe?g)$/i.exec(fileName);
   if (!match) return null;
   return {
     pmvId: Number.parseInt(match[1], 10),
@@ -50,7 +50,7 @@ function discoverCardLibraries(rootDir) {
       const manifest = parseManifest(fs.readFileSync(manifestPath, "utf8"));
       const backUrl = toUrlPath(["cards", libraryId, "back.png"]);
       const cards = fs.readdirSync(cardsDir, { withFileTypes: true })
-        .filter((cardEntry) => cardEntry.isFile() && /\.png$/i.test(cardEntry.name))
+        .filter((cardEntry) => cardEntry.isFile() && /\.(?:png|jpe?g)$/i.test(cardEntry.name))
         .map((cardEntry) => {
           const parsed = parseCardFile(cardEntry.name);
           if (!parsed) return null;

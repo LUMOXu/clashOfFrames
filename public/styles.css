@@ -223,6 +223,21 @@ label {
   padding: 10px 12px;
 }
 
+.auth-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 18px;
+}
+
+.auth-warning {
+  background: rgba(238, 107, 114, .12);
+  border: 1px solid rgba(238, 107, 114, .4);
+  border-radius: 7px;
+  color: #ffd5d8;
+  padding: 10px 12px;
+}
+
 .toast {
   animation: toast-pop 1.8s ease forwards;
   background: rgba(14, 17, 14, .94);

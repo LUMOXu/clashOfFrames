@@ -1,7 +1,8 @@
 "use strict";
 
 const app = {
-  clientId: getClientId(),
+  token: localStorage.getItem("cof.token") || "",
+  clientId: "",
   snapshot: null,
   route: { name: "home" },
   message: "",
@@ -23,34 +24,32 @@ document.addEventListener("change", handleChange);
 
 async function init() {
   await refresh();
-  connectEvents();
   if (!app.snapshot.player) {
-    const savedName = localStorage.getItem(`cof.name.${app.clientId}`) || "";
-    setRoute("username", { savedName });
+    setRoute("auth");
+    return;
   }
+  connectEvents();
   render();
 }
 
-function getClientId() {
-  const existing = sessionStorage.getItem("cof.clientId");
-  if (existing) return existing;
-  const id = crypto.randomUUID ? crypto.randomUUID() : `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  sessionStorage.setItem("cof.clientId", id);
-  const all = JSON.parse(localStorage.getItem("cof.clientIds") || "[]");
-  if (!all.includes(id)) {
-    all.push(id);
-    localStorage.setItem("cof.clientIds", JSON.stringify(all.slice(-20)));
-  }
-  return id;
-}
-
 async function refresh() {
-  app.snapshot = await getJson(`/api/bootstrap?clientId=${encodeURIComponent(app.clientId)}`);
+  const query = app.token ? `?token=${encodeURIComponent(app.token)}` : "";
+  app.snapshot = await getJson(`/api/bootstrap${query}`);
+  if (app.snapshot.player) {
+    app.clientId = app.snapshot.player.clientId;
+  } else {
+    app.clientId = "";
+    if (app.token) {
+      localStorage.removeItem("cof.token");
+      app.token = "";
+    }
+  }
 }
 
 function connectEvents() {
   if (app.eventSource) app.eventSource.close();
-  app.eventSource = new EventSource(`/api/events?clientId=${encodeURIComponent(app.clientId)}`);
+  if (!app.token) return;
+  app.eventSource = new EventSource(`/api/events?token=${encodeURIComponent(app.token)}`);
   app.eventSource.addEventListener("state", async () => {
     await refresh();
     autoRouteFromState();
@@ -59,6 +58,10 @@ function connectEvents() {
 }
 
 function autoRouteFromState() {
+  if (!app.snapshot.player) {
+    app.route = { name: "auth" };
+    return;
+  }
   const room = app.snapshot.currentRoom;
   const game = app.snapshot.currentGame;
   if (!room) {
@@ -85,7 +88,7 @@ function render() {
     return;
   }
 
-  const content = app.route.name === "username" ? renderUsername() : renderShell();
+  const content = app.route.name === "auth" || !app.snapshot.player ? renderAuth() : renderShell();
   root.innerHTML = content;
   if (app.route.name === "loading") beginPreload();
   scheduleCountdownRender();
@@ -103,7 +106,7 @@ function renderShell() {
           <span class="pill">${escapeHtml(app.snapshot.player?.username || "未命名")}</span>
           <button data-action="home">主页</button>
           <button data-action="profile">个人信息</button>
-          <button data-action="new-identity">新标签身份</button>
+          <button data-action="logout">退出登录</button>
         </div>
       </header>
       ${app.message ? `<main class="page"><div class="message">${escapeHtml(app.message)}</div></main>` : ""}
@@ -128,19 +131,39 @@ function renderRoute() {
   return renderHome();
 }
 
-function renderUsername() {
-  const value = app.route.savedName || localStorage.getItem(`cof.name.${app.clientId}`) || "";
+function renderAuth() {
   return `
     <main class="page narrow">
       <section class="panel">
         <h1>帧封相对</h1>
-        <p class="muted">为这个浏览器标签设置一个玩家名。</p>
-        <form id="username-form" class="grid">
-          <label>用户名
-            <input name="username" maxlength="24" required value="${escapeAttr(value)}" autocomplete="nickname">
-          </label>
-          <button class="primary" type="submit">进入游戏</button>
-        </form>
+        <p class="muted">登录后才能创建房间、加入对局和保存战绩。</p>
+        <p class="auth-warning">没有找回密码功能！忘记密码请联系管理员重置。</p>
+        ${app.message ? `<div class="message">${escapeHtml(app.message)}</div>` : ""}
+        <div class="auth-grid">
+          <form id="login-form" class="grid">
+            <h2>登录</h2>
+            <label>用户名
+              <input name="username" maxlength="24" required autocomplete="username">
+            </label>
+            <label>密码
+              <input name="password" type="password" required autocomplete="current-password">
+            </label>
+            <button class="primary" type="submit">登录</button>
+          </form>
+          <form id="register-form" class="grid">
+            <h2>注册</h2>
+            <label>用户名
+              <input name="username" maxlength="24" required autocomplete="username">
+            </label>
+            <label>密码
+              <input name="password" type="password" minlength="6" required autocomplete="new-password">
+            </label>
+            <label>确认密码
+              <input name="confirmPassword" type="password" minlength="6" required autocomplete="new-password">
+            </label>
+            <button type="submit">注册并进入</button>
+          </form>
+        </div>
       </section>
     </main>
   `;
@@ -338,12 +361,13 @@ function renderLoading() {
   const game = app.snapshot.currentGame;
   if (!room || !game) return missingRoom();
   const percent = app.loading.total ? Math.round(app.loading.loaded / app.loading.total * 100) : 0;
+  const cacheText = app.loading.cached ? "，浏览器缓存可复用" : "";
   return `
     <main class="page narrow">
       <section class="panel">
         <h2>游戏加载</h2>
         <div class="loading-bar"><div class="loading-fill" style="width:${percent}%"></div></div>
-        <p class="status-line">${app.loading.loaded}/${app.loading.total || selectedAssetUrls(room).length} 张资源，${percent}%</p>
+        <p class="status-line">${app.loading.loaded}/${app.loading.total || 0} 个资源，${percent}%${cacheText}</p>
         <div class="grid">
           ${room.players.map((player) => `<div class="player-row"><span>${escapeHtml(player.username)}</span><span class="pill ${player.ready ? "ok" : ""}">${player.ready ? "已完成" : "加载中"}</span></div>`).join("")}
         </div>
@@ -551,12 +575,7 @@ function renderProfile() {
     <main class="page">
       <section class="panel">
         <h2>个人信息</h2>
-        <form id="rename-form" class="form-grid">
-          <label>用户名
-            <input name="username" value="${escapeAttr(profile.username || app.snapshot.player?.username || "")}" maxlength="24" required>
-          </label>
-          <button class="primary" type="submit">修改</button>
-        </form>
+        <p class="status-line">当前账号：${escapeHtml(profile.username || app.snapshot.player?.username || "")}</p>
         <div class="menu-grid">
           <div class="card">参与 ${profile.gamesPlayed}</div>
           <div class="card">胜场 ${profile.wins}</div>
@@ -675,7 +694,7 @@ async function handleClick(event) {
   if (action === "transfer") return setRoute("settings", { transfer: true });
   if (action === "go-current-room") return routeToCurrent();
   if (action === "leave-room") return leaveRoom();
-  if (action === "new-identity") return newIdentity();
+  if (action === "logout") return logout();
   if (action === "join-public-room") return joinRoom(button.dataset.room);
   if (action === "start-game") return startGame();
   if (action === "play-card") return playCard();
@@ -699,15 +718,16 @@ function handleChange(event) {
 async function handleSubmit(event) {
   event.preventDefault();
   const form = event.target;
-  if (form.id === "username-form" || form.id === "rename-form") {
-    const username = new FormData(form).get("username").trim();
-    await postJson("/api/player", { clientId: app.clientId, username });
-    localStorage.setItem(`cof.name.${app.clientId}`, username);
-    await refresh();
-    setRoute(form.id === "username-form" ? "home" : "profile");
+  if (form.id === "login-form") {
+    await submitLogin(form);
+    return;
+  }
+  if (form.id === "register-form") {
+    await submitRegister(form);
+    return;
   }
   if (form.id === "create-room-form") {
-    const room = await postJson("/api/rooms", { clientId: app.clientId, settings: settingsFromForm(form, true) });
+    const room = await postJson("/api/rooms", authPayload({ settings: settingsFromForm(form, true) }));
     await refresh();
     setRoute("waiting", { roomId: room.room.id });
   }
@@ -717,17 +737,71 @@ async function handleSubmit(event) {
   }
   if (form.id === "room-settings-form") {
     const room = currentRoom();
-    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/settings`, { clientId: app.clientId, settings: settingsFromForm(form, false) });
+    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/settings`, authPayload({ settings: settingsFromForm(form, false) }));
     await refresh();
     setRoute("waiting", { roomId: room.id });
   }
   if (form.id === "transfer-host-form") {
     const room = currentRoom();
     const newHostId = new FormData(form).get("newHostId");
-    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/transfer-host`, { clientId: app.clientId, newHostId });
+    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/transfer-host`, authPayload({ newHostId }));
     await refresh();
     setRoute("waiting", { roomId: room.id });
   }
+}
+
+async function submitLogin(form) {
+  const data = new FormData(form);
+  try {
+    const result = await postJson("/api/login", {
+      username: data.get("username").trim(),
+      password: data.get("password"),
+    });
+    await finishAuth(result);
+  } catch (error) {
+    app.message = humanizeError(error.message);
+    render();
+  }
+}
+
+async function submitRegister(form) {
+  const data = new FormData(form);
+  const password = data.get("password");
+  if (password !== data.get("confirmPassword")) {
+    app.message = "两次输入的密码不一致。";
+    render();
+    return;
+  }
+  try {
+    const result = await postJson("/api/register", {
+      username: data.get("username").trim(),
+      password,
+    });
+    await finishAuth(result);
+  } catch (error) {
+    app.message = humanizeError(error.message);
+    render();
+  }
+}
+
+async function finishAuth(result) {
+  app.token = result.token;
+  localStorage.setItem("cof.token", app.token);
+  app.clientId = result.player.clientId;
+  const passwordReset = result.passwordReset;
+  await refresh();
+  connectEvents();
+  setRoute("home");
+  if (passwordReset) showToast("管理员重置已生效，刚刚输入的密码已成为新密码。");
+}
+
+function authPayload(extra = {}) {
+  return { token: app.token, clientId: app.clientId, ...extra };
+}
+
+function authQuery(extra = {}) {
+  const params = new URLSearchParams({ token: app.token, ...extra });
+  return `?${params.toString()}`;
 }
 
 function settingsFromForm(form, includeFixed) {
@@ -750,7 +824,7 @@ function settingsFromForm(form, includeFixed) {
 
 async function joinRoom(roomId) {
   try {
-    const result = await postJson(`/api/rooms/${encodeURIComponent(roomId)}/join`, { clientId: app.clientId });
+    const result = await postJson(`/api/rooms/${encodeURIComponent(roomId)}/join`, authPayload());
     await refresh();
     if (result.game?.status === "playing" || result.game?.status === "finished") setRoute("game");
     else if (result.room.status === "loading") setRoute("loading");
@@ -764,7 +838,7 @@ async function joinRoom(roomId) {
 async function startGame() {
   const room = currentRoom();
   try {
-    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/start`, { clientId: app.clientId });
+    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/start`, authPayload());
     await refresh();
     setRoute("loading");
   } catch (error) {
@@ -778,31 +852,32 @@ async function beginPreload() {
   const game = app.snapshot.currentGame;
   if (!room || !game || (app.loading.gameId === game.id && (app.loading.done || app.loading.running))) return;
   if (app.loading.gameId !== game.id) {
-    app.loading = { gameId: game.id, loaded: 0, total: selectedAssetUrls(room).length, done: false, running: false };
+    app.loading = { gameId: game.id, loaded: 0, total: 0, done: false, running: false, cached: false, manifestKey: "" };
   }
-  const urls = selectedAssetUrls(room);
-  app.loading.total = urls.length;
   app.loading.running = true;
-  for (const url of urls) {
-    await preloadImage(url).catch(() => undefined);
-    app.loading.loaded += 1;
+  try {
+    const manifest = await getJson(`/api/rooms/${encodeURIComponent(room.id)}/assets${authQuery()}`);
+    const urls = manifest.assets || [];
+    const cacheKey = `cof.assets.${manifest.key}`;
+    app.loading.manifestKey = manifest.key;
+    app.loading.cached = localStorage.getItem(cacheKey) === "1";
+    app.loading.total = urls.length;
     render();
+    for (const url of urls) {
+      await preloadImage(url).catch(() => undefined);
+      app.loading.loaded += 1;
+      render();
+    }
+    localStorage.setItem(cacheKey, "1");
+    app.loading.done = true;
+    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/loading-ready`, authPayload());
+    await refresh();
+    if (app.snapshot.currentGame?.status === "playing") setRoute("game");
+  } catch (error) {
+    showToast(humanizeError(error.message));
+  } finally {
+    app.loading.running = false;
   }
-  app.loading.done = true;
-  app.loading.running = false;
-  await postJson(`/api/rooms/${encodeURIComponent(room.id)}/loading-ready`, { clientId: app.clientId });
-  await refresh();
-  if (app.snapshot.currentGame?.status === "playing") setRoute("game");
-}
-
-function selectedAssetUrls(room) {
-  const libs = app.snapshot.cardLibraries.filter((lib) => room.settings.libraryIds.includes(lib.id));
-  const urls = new Set(["/assets/bell.png"]);
-  libs.forEach((lib) => {
-    urls.add(lib.backUrl);
-    lib.cards.forEach((card) => urls.add(card.imageUrl));
-  });
-  return [...urls];
 }
 
 function preloadImage(url) {
@@ -838,7 +913,7 @@ async function leaveRoom() {
   const room = app.snapshot.currentRoom;
   if (!room) return;
   try {
-    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/leave`, { clientId: app.clientId });
+    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/leave`, authPayload());
     await refresh();
     setRoute("home");
   } catch (error) {
@@ -848,7 +923,7 @@ async function leaveRoom() {
 
 async function safeAction(path) {
   try {
-    await postJson(path, { clientId: app.clientId });
+    await postJson(path, authPayload());
     await refresh();
     render();
   } catch (error) {
@@ -939,18 +1014,34 @@ function missingRoom() {
   return `<main class="page"><section class="panel"><h2>没有当前房间</h2><button data-action="home">返回主页</button></section></main>`;
 }
 
-function newIdentity() {
-  sessionStorage.removeItem("cof.clientId");
-  app.clientId = getClientId();
-  app.snapshot = null;
-  app.route = { name: "username" };
-  connectEvents();
-  refresh().then(() => render());
+async function logout() {
+  const token = app.token;
+  try {
+    if (token) await postJson("/api/logout", { token });
+  } catch {
+    // Logging out should always clear the local session, even if the server is gone.
+  }
+  clearAuth("已退出登录。");
+  await refresh();
+  render();
+}
+
+function clearAuth(message = "") {
+  if (app.eventSource) {
+    app.eventSource.close();
+    app.eventSource = null;
+  }
+  localStorage.removeItem("cof.token");
+  app.token = "";
+  app.clientId = "";
+  app.route = { name: "auth" };
+  app.message = message;
 }
 
 async function getJson(path) {
   const response = await fetch(path);
   const data = await response.json();
+  if (response.status === 401) clearAuth(data.error || "请重新登录。");
   if (!response.ok) throw new Error(data.error || "请求失败");
   return data;
 }
@@ -962,6 +1053,7 @@ async function postJson(path, body) {
     body: JSON.stringify(body),
   });
   const data = await response.json();
+  if (response.status === 401) clearAuth(data.error || "请重新登录。");
   if (!response.ok) throw new Error(data.error || "请求失败");
   return data;
 }

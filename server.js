@@ -4,6 +4,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
 const {
   normalizeSettings,
   createGame,
@@ -20,6 +21,11 @@ const { discoverCardLibraries } = require("./src/cardLibraries");
 
 const ROOT_DIR = __dirname;
 const DEFAULT_PORT = Number.parseInt(process.env.PORT || "3000", 10);
+const DEFAULT_HOST = process.env.HOST || "0.0.0.0";
+const PASSWORD_ITERATIONS = 210000;
+const PASSWORD_KEY_LENGTH = 32;
+const PASSWORD_DIGEST = "sha256";
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function createApp(options = {}) {
   const rootDir = options.rootDir || ROOT_DIR;
@@ -29,6 +35,7 @@ function createApp(options = {}) {
   const data = loadData(dataFile);
   const state = {
     players: new Map(),
+    sessions: new Map(),
     rooms: new Map(),
     games: new Map(),
     streams: new Map(),
@@ -94,38 +101,83 @@ async function handleApi(req, res, url, pathname, context) {
   const body = req.method === "POST" ? await readBody(req) : {};
 
   if (req.method === "GET" && pathname === "/api/bootstrap") {
-    const clientId = url.searchParams.get("clientId") || "";
-    return sendJson(res, 200, snapshotFor(clientId, state, cardLibraries));
+    const auth = optionalAuth(req, url, body, context);
+    return sendJson(res, 200, snapshotFor(auth?.clientId || "", state, cardLibraries));
   }
 
   if (req.method === "GET" && pathname === "/api/card-libraries") {
     return sendJson(res, 200, publicLibraries(cardLibraries));
   }
 
-  if (req.method === "POST" && pathname === "/api/player") {
-    const clientId = requiredString(body.clientId, "clientId");
+  if (req.method === "POST" && pathname === "/api/register") {
     const username = cleanName(requiredString(body.username, "username"));
-    ensureUsernameAvailable(state, username, clientId);
-    const player = upsertPlayer(state, clientId, username, getClientIp(req));
+    const password = requiredString(body.password, "password");
+    if (password.length < 6) throw httpError(400, "密码至少需要 6 个字符。");
+    ensureUsernameAvailable(state, username);
+    const user = createUser(state, username, password);
+    const player = upsertPlayerFromUser(state, user, getClientIp(req));
+    const token = createSession(state, user.clientId);
     saveData(state.data, dataFile);
     broadcast(state);
-    return sendJson(res, 200, { player });
+    return sendJson(res, 201, { token, player: publicPlayer(player) });
+  }
+
+  if (req.method === "POST" && pathname === "/api/login") {
+    const username = cleanName(requiredString(body.username, "username"));
+    const password = requiredString(body.password, "password");
+    const user = findUserByUsername(state.data, username);
+    if (!user) throw httpError(401, "用户名或密码不正确。");
+    const verification = verifyPassword(user, password);
+    if (!verification.ok) throw httpError(401, "用户名或密码不正确。");
+    if (verification.resetPassword) setUserPassword(user, password);
+    user.lastLoginAt = Date.now();
+    const player = upsertPlayerFromUser(state, user, getClientIp(req));
+    const token = createSession(state, user.clientId);
+    saveData(state.data, dataFile);
+    broadcast(state);
+    return sendJson(res, 200, { token, player: publicPlayer(player), passwordReset: verification.resetPassword });
+  }
+
+  if (req.method === "POST" && pathname === "/api/logout") {
+    const token = tokenFromRequest(req, url, body);
+    const session = token ? state.sessions.get(token) : null;
+    if (token) state.sessions.delete(token);
+    if (session) {
+      setConnected(state, session.clientId, false);
+      broadcast(state);
+    }
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (req.method === "POST" && pathname === "/api/player") {
+    return sendJson(res, 410, { error: "现在需要注册账号并登录；用户名注册后不能直接修改，请联系管理员处理。" });
   }
 
   if (req.method === "GET" && pathname === "/api/rooms") {
+    const { clientId } = requireAuth(req, url, body, context);
     const includePrivate = url.searchParams.get("all") === "1";
     const rooms = [...state.rooms.values()]
-      .filter((room) => includePrivate || room.settings.isPublic || room.players.includes(url.searchParams.get("clientId")))
+      .filter((room) => includePrivate || room.settings.isPublic || room.players.includes(clientId) || room.spectators.includes(clientId))
       .map((room) => roomSummary(room, state));
     return sendJson(res, 200, { rooms });
   }
 
   if (req.method === "POST" && pathname === "/api/rooms") {
-    const clientId = requiredString(body.clientId, "clientId");
-    const player = ensureKnownPlayer(state, clientId);
+    const { player } = requireAuth(req, url, body, context);
     const room = createRoom(state, player, body.settings || {}, cardLibraries);
     broadcast(state);
     return sendJson(res, 201, { room: roomSummary(room, state) });
+  }
+
+  const roomAssetMatch = /^\/api\/rooms\/([^/]+)\/assets$/.exec(pathname);
+  if (roomAssetMatch && req.method === "GET") {
+    const { clientId } = requireAuth(req, url, body, context);
+    const room = state.rooms.get(roomAssetMatch[1]);
+    if (!room) return sendJson(res, 404, { error: "房间不存在。" });
+    if (!room.players.includes(clientId) && !room.spectators.includes(clientId)) {
+      throw httpError(403, "只有房间内玩家可以加载该房间资源。");
+    }
+    return sendJson(res, 200, assetManifestForRoom(room, cardLibraries));
   }
 
   const roomMatch = /^\/api\/rooms\/([^/]+)\/([^/]+)$/.exec(pathname);
@@ -134,7 +186,7 @@ async function handleApi(req, res, url, pathname, context) {
     const action = roomMatch[2];
     const room = state.rooms.get(roomId);
     if (!room) return sendJson(res, 404, { error: "房间不存在。" });
-    const clientId = requiredString(body.clientId, "clientId");
+    const { clientId } = requireAuth(req, url, body, context);
 
     if (action === "join") {
       const player = ensureKnownPlayer(state, clientId);
@@ -201,7 +253,7 @@ async function handleApi(req, res, url, pathname, context) {
     const action = gameMatch[2];
     const game = state.games.get(gameId);
     if (!game) return sendJson(res, 404, { error: "对局不存在。" });
-    const clientId = requiredString(body.clientId, "clientId");
+    const { clientId } = requireAuth(req, url, body, context);
 
     if (action === "play-card") {
       const result = performPlayCard(game, clientId, { now: Date.now() });
@@ -231,7 +283,9 @@ async function handleApi(req, res, url, pathname, context) {
 
   const profileMatch = /^\/api\/profile\/([^/]+)$/.exec(pathname);
   if (profileMatch && req.method === "GET") {
-    return sendJson(res, 200, { profile: profileFor(profileMatch[1], state.data) });
+    const { clientId } = requireAuth(req, url, body, context);
+    if (profileMatch[1] !== clientId) throw httpError(403, "只能查看自己的个人信息。");
+    return sendJson(res, 200, { profile: profileFor(clientId, state.data) });
   }
 
   if (req.method === "GET" && pathname === "/api/leaderboard") {
@@ -243,8 +297,12 @@ async function handleApi(req, res, url, pathname, context) {
 
 function handleEvents(req, res, url, context) {
   const { state } = context;
-  const clientId = url.searchParams.get("clientId");
-  if (!clientId) return sendJson(res, 400, { error: "clientId is required" });
+  let clientId;
+  try {
+    ({ clientId } = requireAuth(req, url, {}, context));
+  } catch (error) {
+    return sendJson(res, error.statusCode || 401, { error: error.message || "请先登录。" });
+  }
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -524,23 +582,7 @@ function migrateHost(room, state) {
   if (nextHost) room.hostId = nextHost;
 }
 
-function upsertPlayer(state, clientId, username, ip) {
-  const existing = state.players.get(clientId) || {};
-  const player = {
-    clientId,
-    username,
-    ip,
-    connected: existing.connected !== false,
-    currentRoomId: existing.currentRoomId || null,
-    joinedAt: existing.joinedAt || Date.now(),
-    lastSeenAt: Date.now(),
-  };
-  state.players.set(clientId, player);
-  ensureStats(state.data, clientId, username).username = username;
-  return player;
-}
-
-function ensureUsernameAvailable(state, username, clientId) {
+function ensureLegacyUsernameAvailable(state, username, clientId) {
   const key = usernameKey(username);
   for (const player of state.players.values()) {
     if (player.clientId !== clientId && usernameKey(player.username) === key) {
@@ -551,6 +593,139 @@ function ensureUsernameAvailable(state, username, clientId) {
     if (player.clientId !== clientId && usernameKey(player.username) === key) {
       throw httpError(409, "用户名已被占用，请换一个。");
     }
+  }
+}
+
+function createUser(state, username, password) {
+  const clientId = crypto.randomUUID();
+  const user = {
+    clientId,
+    username,
+    createdAt: Date.now(),
+    lastLoginAt: Date.now(),
+  };
+  setUserPassword(user, password);
+  state.data.users[clientId] = user;
+  ensureStats(state.data, clientId, username).username = username;
+  return user;
+}
+
+function setUserPassword(user, password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  user.passwordSalt = salt;
+  user.passwordHash = hashPassword(password, salt);
+  user.passwordIterations = PASSWORD_ITERATIONS;
+  user.passwordDigest = PASSWORD_DIGEST;
+  user.passwordUpdatedAt = Date.now();
+}
+
+function hashPassword(password, salt, iterations = PASSWORD_ITERATIONS) {
+  return crypto.pbkdf2Sync(password, salt, iterations, PASSWORD_KEY_LENGTH, PASSWORD_DIGEST).toString("hex");
+}
+
+function verifyPassword(user, password) {
+  if (user.passwordHash === "123456") return { ok: true, resetPassword: true };
+  if (!user.passwordSalt || !user.passwordHash) return { ok: false, resetPassword: false };
+  const expected = hashPassword(password, user.passwordSalt, user.passwordIterations || PASSWORD_ITERATIONS);
+  return { ok: timingSafeEqualHex(expected, user.passwordHash), resetPassword: false };
+}
+
+function timingSafeEqualHex(left, right) {
+  try {
+    const leftBuffer = Buffer.from(String(left), "hex");
+    const rightBuffer = Buffer.from(String(right), "hex");
+    if (leftBuffer.length !== rightBuffer.length) return false;
+    return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+  } catch {
+    return false;
+  }
+}
+
+function createSession(state, clientId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  state.sessions.set(token, { clientId, createdAt: Date.now(), lastSeenAt: Date.now() });
+  return token;
+}
+
+function tokenFromRequest(req, url, body = {}) {
+  const authHeader = req.headers.authorization || "";
+  if (authHeader.toLowerCase().startsWith("bearer ")) return authHeader.slice(7).trim();
+  return body.token || url.searchParams.get("token") || "";
+}
+
+function optionalAuth(req, url, body, context) {
+  const token = tokenFromRequest(req, url, body);
+  if (!token) return null;
+  try {
+    return requireAuth(req, url, body, context);
+  } catch {
+    return null;
+  }
+}
+
+function requireAuth(req, url, body, context) {
+  const { state } = context;
+  const token = tokenFromRequest(req, url, body);
+  if (!token) throw httpError(401, "请先登录。");
+  const session = state.sessions.get(token);
+  const now = Date.now();
+  if (!session || now - session.lastSeenAt > SESSION_TTL_MS) {
+    state.sessions.delete(token);
+    throw httpError(401, "登录已过期，请重新登录。");
+  }
+  if (body.clientId && body.clientId !== session.clientId) {
+    throw httpError(403, "会话与玩家不匹配。");
+  }
+  const user = state.data.users[session.clientId];
+  if (!user) {
+    state.sessions.delete(token);
+    throw httpError(401, "账号不存在，请重新登录。");
+  }
+  session.lastSeenAt = now;
+  const player = upsertPlayerFromUser(state, user, getClientIp(req));
+  return { token, session, clientId: user.clientId, user, player };
+}
+
+function upsertPlayerFromUser(state, user, ip) {
+  const existing = state.players.get(user.clientId) || {};
+  const player = {
+    clientId: user.clientId,
+    username: user.username,
+    ip,
+    connected: existing.connected !== false,
+    currentRoomId: existing.currentRoomId || null,
+    joinedAt: existing.joinedAt || Date.now(),
+    lastSeenAt: Date.now(),
+  };
+  state.players.set(user.clientId, player);
+  ensureStats(state.data, user.clientId, user.username).username = user.username;
+  return player;
+}
+
+function publicPlayer(player) {
+  if (!player) return null;
+  return {
+    clientId: player.clientId,
+    username: player.username,
+    connected: player.connected !== false,
+    currentRoomId: player.currentRoomId || null,
+    joinedAt: player.joinedAt,
+    lastSeenAt: player.lastSeenAt,
+  };
+}
+
+function findUserByUsername(data, username) {
+  const key = usernameKey(username);
+  return Object.values(data.users || {}).find((user) => usernameKey(user.username) === key) || null;
+}
+
+function ensureUsernameAvailable(state, username) {
+  if (findUserByUsername(state.data, username)) {
+    throw httpError(409, "用户名已被注册，请换一个。");
+  }
+  const key = usernameKey(username);
+  for (const player of state.players.values()) {
+    if (usernameKey(player.username) === key) throw httpError(409, "用户名已被注册，请换一个。");
   }
 }
 
@@ -633,7 +808,7 @@ function snapshotFor(clientId, state, cardLibraries) {
   const currentGame = currentRoom?.gameId ? state.games.get(currentRoom.gameId) : null;
   return {
     serverTime: Date.now(),
-    player,
+    player: publicPlayer(player),
     cardLibraries: publicLibraries(cardLibraries),
     rooms,
     currentRoom: currentRoom ? roomSummary(currentRoom, state) : null,
@@ -678,8 +853,31 @@ function publicLibraries(cardLibraries) {
     cardCount: library.cardCount,
     pmvCount: library.pmvCount,
     manifest: library.manifest,
-    cards: library.cards,
   }));
+}
+
+function assetManifestForRoom(room, cardLibraries) {
+  const selectedIds = new Set(room.settings.libraryIds);
+  const libraries = cardLibraries.filter((library) => selectedIds.has(library.id));
+  const assets = new Set(["/assets/bell.png", "/assets/logo.png"]);
+  libraries.forEach((library) => {
+    assets.add(library.backUrl);
+    library.cards.forEach((card) => assets.add(card.imageUrl));
+  });
+  const fingerprint = crypto.createHash("sha256")
+    .update(JSON.stringify(libraries.map((library) => ({
+      id: library.id,
+      cardCount: library.cardCount,
+      backUrl: library.backUrl,
+      cards: library.cards.map((card) => card.imageUrl),
+    }))))
+    .digest("hex")
+    .slice(0, 20);
+  return {
+    key: `room-assets-${fingerprint}`,
+    libraries: publicLibraries(libraries),
+    assets: [...assets],
+  };
 }
 
 function allocateRoomId(state) {
@@ -727,7 +925,11 @@ function readBody(req) {
 }
 
 function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
   res.end(JSON.stringify(payload));
 }
 
@@ -771,9 +973,20 @@ function serveStatic(req, res, pathname, context) {
       res.end("Not found");
       return;
     }
-    res.writeHead(200, { "Content-Type": mimeType(resolved) });
+    res.writeHead(200, {
+      "Content-Type": mimeType(resolved),
+      "Cache-Control": assetCacheControl(pathname),
+      "X-Content-Type-Options": "nosniff",
+    });
     res.end(content);
   });
+}
+
+function assetCacheControl(pathname) {
+  if (pathname.startsWith("/cards/") || pathname === "/assets/bell.png" || pathname === "/bell.png" || pathname === "/assets/logo.png" || pathname === "/logo.png") {
+    return "public, max-age=31536000, immutable";
+  }
+  return "no-cache";
 }
 
 function mimeType(filePath) {
@@ -784,20 +997,23 @@ function mimeType(filePath) {
     ".js": "application/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
     ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
     ".svg": "image/svg+xml",
   }[ext] || "application/octet-stream";
 }
 
 function loadData(dataFile) {
-  if (!fs.existsSync(dataFile)) return { players: {}, matchHistory: [] };
+  if (!fs.existsSync(dataFile)) return { users: {}, players: {}, matchHistory: [] };
   try {
     const parsed = JSON.parse(fs.readFileSync(dataFile, "utf8"));
     return {
+      users: parsed.users || {},
       players: parsed.players || {},
       matchHistory: Array.isArray(parsed.matchHistory) ? parsed.matchHistory : [],
     };
   } catch {
-    return { players: {}, matchHistory: [] };
+    return { users: {}, players: {}, matchHistory: [] };
   }
 }
 
@@ -812,10 +1028,18 @@ function getClientIp(req) {
     || os.hostname();
 }
 
+function getLanUrls(port) {
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .filter((item) => item && item.family === "IPv4" && !item.internal)
+    .map((item) => `http://${item.address}:${port}`);
+}
+
 if (require.main === module) {
   const { server } = createApp();
-  server.listen(DEFAULT_PORT, () => {
+  server.listen(DEFAULT_PORT, DEFAULT_HOST, () => {
     console.log(`Clash of Frames running at http://localhost:${DEFAULT_PORT}`);
+    getLanUrls(DEFAULT_PORT).forEach((address) => console.log(`LAN: ${address}`));
   });
 }
 
