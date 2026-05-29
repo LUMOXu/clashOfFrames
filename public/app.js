@@ -895,9 +895,17 @@ async function playCard() {
   await safeAction(`/api/games/${encodeURIComponent(game.id)}/play-card`);
 }
 
+const bellAudio = new Audio('/ding.wav');
+
 async function ringBell() {
   const game = app.snapshot.currentGame;
   if (!game) return;
+  const button = document.querySelector('button[data-action="ring-bell"]');
+  const canRing = button && !button.disabled;
+  if (canRing) {
+    bellAudio.currentTime = 0;
+    bellAudio.play().catch(() => {});
+  }
   await safeAction(`/api/games/${encodeURIComponent(game.id)}/ring-bell`);
 }
 

@@ -950,6 +950,8 @@ function serveStatic(req, res, pathname, context) {
     filePath = path.join(rootDir, "bell.png");
   } else if (pathname === "/assets/logo.png" || pathname === "/logo.png") {
     filePath = path.join(rootDir, "logo.png");
+  } else if (pathname === "/ding.wav") {
+    filePath = path.join(rootDir, "ding.wav");
   } else if (pathname.startsWith("/cards/")) {
     filePath = path.join(rootDir, pathname.slice(1));
   } else {
@@ -1000,6 +1002,7 @@ function mimeType(filePath) {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".svg": "image/svg+xml",
+    ".wav": "audio/wav",
   }[ext] || "application/octet-stream";
 }
 
