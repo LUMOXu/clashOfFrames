@@ -23,8 +23,13 @@ const app = {
   refreshRequestSeq: 0,
   stateRefreshTimer: null,
   countdownTimer: null,
+  resultReplay: { gameId: null, startedAt: 0 },
   backdropRouteName: "",
 };
+
+const RESULT_REPLAY_RATE = 20;
+const RESULT_CHART_COLORS = ["#f3d775", "#54c4a8", "#ee6b72", "#8ab6ff", "#c58cff", "#ffad66", "#72d37d", "#f08ec2"];
+const MAX_VISIBLE_TURN_COUNTDOWN_SECONDS = 8;
 
 document.addEventListener("DOMContentLoaded", init);
 document.addEventListener("click", handleClick);
@@ -595,10 +600,7 @@ function renderGameAlert(game) {
 function renderTurnBanner(game, current, self, locked) {
   if (game.status !== "playing" || !current) return "";
   const label = current.clientId === self?.clientId ? "轮到你出牌" : `轮到 ${current.username} 出牌`;
-  let detail = "";
-  if (locked) detail = `结算倒计时 ${Math.ceil((game.lockedUntil - Date.now()) / 1000)} 秒`;
-  else if (current.connected === false) detail = "玩家掉线，等待自动出牌";
-  else if (current.clientId === self?.clientId) detail = "点击高亮牌堆出牌";
+  const detail = turnBannerDetail(game, current, self, locked, Date.now());
   return `<div class="turn-banner"><strong>${escapeHtml(label)}</strong>${detail ? `<span>${escapeHtml(detail)}</span>` : ""}</div>`;
 }
 
@@ -739,21 +741,179 @@ function flyStyle(fromX, fromY, toX, toY, durationMs, delayMs = 0, elapsedMs = 0
   return `--from-left:${fromX}%;--from-top:${fromY}%;--to-left:${toX}%;--to-top:${toY}%;animation-duration:${durationMs}ms;animation-delay:${effectiveDelay}ms;`;
 }
 
+function resultChartXMax(game) {
+  const rowMax = Math.max(0, (game.resultInfo?.counts || []).length - 1);
+  return Math.max(0, Number(game.playCount) || rowMax);
+}
+
+function resultReplayProgress(game, startedAt, now = Date.now()) {
+  const xMax = resultChartXMax(game);
+  if (xMax <= 0) return 0;
+  const elapsedSeconds = Math.max(0, now - startedAt) / 1000;
+  return Math.min(xMax, elapsedSeconds * RESULT_REPLAY_RATE);
+}
+
+function canContinueAfterResultReplay(game, startedAt, now = Date.now()) {
+  if (!game?.resultInfo?.counts?.length) return true;
+  return resultReplayProgress(game, startedAt, now) >= resultChartXMax(game);
+}
+
+function ensureResultReplay(game, now = Date.now()) {
+  if (!game || game.status !== "finished" || !game.resultInfo?.counts?.length) return 0;
+  if (app.resultReplay.gameId !== game.id) {
+    app.resultReplay = { gameId: game.id, startedAt: now };
+  }
+  return app.resultReplay.startedAt;
+}
+
+function clippedLinePoints(points, progressX) {
+  if (!points.length) return [];
+  if (progressX < points[0].x) return [];
+  const out = [];
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index];
+    if (point.x <= progressX) {
+      out.push(point);
+      continue;
+    }
+    const previous = points[index - 1];
+    if (previous && previous.x < progressX) {
+      const span = point.x - previous.x || 1;
+      const ratio = (progressX - previous.x) / span;
+      out.push({
+        x: progressX,
+        y: previous.y + (point.y - previous.y) * ratio,
+      });
+    }
+    break;
+  }
+  return out;
+}
+
+function chartColor(index, winner) {
+  return winner ? "#f3d775" : RESULT_CHART_COLORS[index % RESULT_CHART_COLORS.length];
+}
+
+function chartPoint(point, model) {
+  const plotWidth = model.width - model.pad.left - model.pad.right;
+  const plotHeight = model.height - model.pad.top - model.pad.bottom;
+  const x = model.pad.left + (model.xMax > 0 ? point.x / model.xMax : 0) * plotWidth;
+  const y = model.pad.top + (1 - (model.yMax > 0 ? point.y / model.yMax : 0)) * plotHeight;
+  return { x, y };
+}
+
+function linePath(points, model) {
+  return points.map((point, index) => {
+    const plotted = chartPoint(point, model);
+    return `${index === 0 ? "M" : "L"} ${plotted.x.toFixed(2)} ${plotted.y.toFixed(2)}`;
+  }).join(" ");
+}
+
+function buildResultChartModel(game, progressX = resultChartXMax(game)) {
+  const counts = game.resultInfo?.counts || [];
+  const players = game.resultInfo?.players || [];
+  const xMax = resultChartXMax(game);
+  const maxCount = counts.reduce((max, row) => Math.max(max, ...row.map((value) => Number(value) || 0)), 0);
+  const model = {
+    width: 640,
+    height: 260,
+    pad: { left: 46, right: 18, top: 18, bottom: 34 },
+    xMax,
+    yMax: Math.max(1, maxCount),
+    series: [],
+  };
+  model.series = players.map((player, playerIndex) => {
+    const rawPoints = counts.map((row, rowIndex) => ({
+      x: rowIndex,
+      y: Number(row[playerIndex]) || 0,
+    }));
+    const winner = player.clientId === game.winnerId;
+    const points = clippedLinePoints(rawPoints, progressX);
+    return {
+      ...player,
+      index: playerIndex,
+      winner,
+      color: chartColor(playerIndex, winner),
+      points,
+      path: linePath(points, model),
+    };
+  });
+  return model;
+}
+
+function turnBannerDetail(game, current, self, locked, now = Date.now()) {
+  if (game.status !== "playing" || !current) return "";
+  if (locked) return `结算倒计时 ${Math.ceil((game.lockedUntil - now) / 1000)} 秒`;
+  if (current.connected === false) return "玩家掉线，等待自动出牌";
+  const remaining = game.turnDeadlineAt ? Math.max(0, Math.ceil((game.turnDeadlineAt - now) / 1000)) : 0;
+  const countdown = remaining > 0 && remaining <= MAX_VISIBLE_TURN_COUNTDOWN_SECONDS ? `出牌倒计时 ${remaining} 秒` : "";
+  if (current.clientId === self?.clientId) {
+    return countdown ? `点击高亮牌堆出牌 · ${countdown}` : "点击高亮牌堆出牌";
+  }
+  return countdown;
+}
+
+function renderResultChart(game, startedAt, now = Date.now()) {
+  if (!game.resultInfo?.counts?.length) return "";
+  const progressX = resultReplayProgress(game, startedAt, now);
+  const model = buildResultChartModel(game, progressX);
+  const plotLeft = model.pad.left;
+  const plotRight = model.width - model.pad.right;
+  const plotTop = model.pad.top;
+  const plotBottom = model.height - model.pad.bottom;
+  const xTicks = [...new Set([0, Math.floor(model.xMax / 2), model.xMax])];
+  const yTicks = [...new Set([0, Math.ceil(model.yMax / 2), model.yMax])];
+  const grid = [
+    ...xTicks.map((tick) => {
+      const point = chartPoint({ x: tick, y: 0 }, model);
+      return `<line class="result-grid" x1="${point.x.toFixed(2)}" y1="${plotTop}" x2="${point.x.toFixed(2)}" y2="${plotBottom}"></line><text class="result-axis-label" x="${point.x.toFixed(2)}" y="${model.height - 8}" text-anchor="middle">${tick}</text>`;
+    }),
+    ...yTicks.map((tick) => {
+      const point = chartPoint({ x: 0, y: tick }, model);
+      return `<line class="result-grid" x1="${plotLeft}" y1="${point.y.toFixed(2)}" x2="${plotRight}" y2="${point.y.toFixed(2)}"></line><text class="result-axis-label" x="8" y="${(point.y + 4).toFixed(2)}">${tick}</text>`;
+    }),
+  ].join("");
+  const paths = model.series.map((series) => series.path ? `
+    <path class="result-line ${series.winner ? "winner" : ""}" d="${escapeAttr(series.path)}" stroke="${escapeAttr(series.color)}"></path>
+  ` : "").join("");
+  const legend = model.series.map((series) => `
+    <span class="result-legend-item ${series.winner ? "winner" : ""}">
+      <span class="result-swatch" style="background:${escapeAttr(series.color)}"></span>
+      ${escapeHtml(series.username)}
+    </span>
+  `).join("");
+  return `
+    <div class="result-chart">
+      <svg viewBox="0 0 ${model.width} ${model.height}" role="img" aria-label="剩余牌数折线图">
+        ${grid}
+        <line class="result-axis" x1="${plotLeft}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}"></line>
+        <line class="result-axis" x1="${plotLeft}" y1="${plotTop}" x2="${plotLeft}" y2="${plotBottom}"></line>
+        ${paths}
+      </svg>
+      <div class="result-legend">${legend}</div>
+    </div>
+  `;
+}
+
 function renderResult(game) {
   const winner = game.players.find((player) => player.clientId === game.winnerId);
   const average = game.successBellCount ? (game.playCount / game.successBellCount).toFixed(2) : game.playCount;
   const connectedTotal = game.players.filter((player) => player.connected !== false && !player.exited).length;
   const validVotes = game.continueVotes.filter((clientId) => game.players.some((player) => player.clientId === clientId && player.connected !== false && !player.exited)).length;
   const countdown = game.continueReturnAt ? Math.max(0, Math.ceil((game.continueReturnAt - Date.now()) / 1000)) : null;
+  const now = Date.now();
+  const replayStartedAt = ensureResultReplay(game, now);
+  const replayDone = canContinueAfterResultReplay(game, replayStartedAt, now);
   return `
     <div class="result-modal">
       <h2>祝贺 ${escapeHtml(winner?.username || "无人")} 胜利</h2>
       <p>总出牌数：${game.playCount}</p>
       <p>抢铃：${game.bellCount} 次，成功 ${game.successBellCount}，失败 ${game.failBellCount}</p>
       <p>平均回合长度：${average}</p>
+      ${renderResultChart(game, replayStartedAt, now)}
       <p>继续确认：${validVotes}/${connectedTotal} 人</p>
       ${countdown === null ? "" : `<p>返回等待区倒计时：${countdown} 秒</p>`}
-      <button class="primary" data-action="continue-game">继续</button>
+      <button class="primary" data-action="continue-game" ${replayDone ? "" : "disabled"}>${replayDone ? "继续" : "回放中"}</button>
     </div>
   `;
 }
@@ -1177,6 +1337,11 @@ async function ringBell() {
 async function continueGame() {
   const game = app.snapshot.currentGame;
   if (!game) return;
+  const replayStartedAt = ensureResultReplay(game);
+  if (!canContinueAfterResultReplay(game, replayStartedAt)) {
+    render();
+    return;
+  }
   await safeAction(`/api/games/${encodeURIComponent(game.id)}/continue`);
   await refresh();
   routeToCurrent();
@@ -1237,12 +1402,31 @@ function scheduleCountdownRender() {
   const game = app.snapshot?.currentGame;
   const now = Date.now();
   const animationUntil = game?.lastAnimation ? game.lastAnimation.startedAt + game.lastAnimation.durationMs : 0;
+  if (game?.status === "finished" && game.resultInfo?.counts?.length) {
+    const replayStartedAt = ensureResultReplay(game, now);
+    if (!canContinueAfterResultReplay(game, replayStartedAt, now)) {
+      app.countdownTimer = window.setTimeout(() => {
+        app.countdownTimer = null;
+        render();
+      }, 50);
+      return;
+    }
+  }
   if (game?.status === "playing" && game.lockedUntil > Date.now()) {
     const delay = animationUntil > now ? animationUntil - now + 80 : 1000;
     app.countdownTimer = window.setTimeout(() => {
       app.countdownTimer = null;
       render();
     }, delay);
+    return;
+  }
+  const current = game?.players?.[game.turnIndex];
+  const turnSecondsLeft = game?.turnDeadlineAt ? Math.max(0, Math.ceil((game.turnDeadlineAt - now) / 1000)) : 0;
+  if (game?.status === "playing" && current?.connected !== false && turnSecondsLeft > 0 && turnSecondsLeft <= MAX_VISIBLE_TURN_COUNTDOWN_SECONDS) {
+    app.countdownTimer = window.setTimeout(() => {
+      app.countdownTimer = null;
+      render();
+    }, 1000);
     return;
   }
   if (game?.status === "finished" && game.continueReturnAt && now < game.continueReturnAt) {

@@ -139,6 +139,22 @@ test("playing last draw card eliminates player when empty bell is disabled", () 
   assert.equal(game.players[0].eliminated, true);
 });
 
+test("result info stores draw counts by cumulative play count", () => {
+  const game = sampleGame();
+  game.turnIndex = 0;
+
+  assert.deepEqual(game.resultInfo.counts[0], [4, 4, 4]);
+
+  const played = performPlayCard(game, "a", { now: 2000 });
+  assert.equal(played.ok, true);
+  assert.deepEqual(game.resultInfo.counts[1], [3, 4, 4]);
+
+  const rang = performRingBell(game, "b", { now: 3000 });
+  assert.equal(rang.ok, true);
+  assert.deepEqual(game.resultInfo.counts[1], [4, 2, 5]);
+  assert.equal(game.resultInfo.counts.length, 2);
+});
+
 test("disconnected protected player gets a two second auto-play deadline", () => {
   const game = sampleGame({ disconnectProtection: true });
   game.turnIndex = 1;
@@ -228,4 +244,22 @@ test("public success animation only includes visible card details", () => {
   assert.equal(pile.cards[0].id, "anim-0");
   assert.equal(pile.cards[19].id, "anim-19");
   assert.equal(pile.cards[19].pmvId, 19);
+});
+
+test("public game exposes result info only after finish", () => {
+  const game = sampleGame();
+
+  assert.equal(publicGame(game).resultInfo, undefined);
+
+  game.status = "finished";
+  game.winnerId = "a";
+  game.finishedAt = 5000;
+  const snapshot = publicGame(game);
+
+  assert.deepEqual(snapshot.resultInfo.players, [
+    { clientId: "a", username: "A" },
+    { clientId: "b", username: "B" },
+    { clientId: "c", username: "C" },
+  ]);
+  assert.deepEqual(snapshot.resultInfo.counts[0], [4, 4, 4]);
 });

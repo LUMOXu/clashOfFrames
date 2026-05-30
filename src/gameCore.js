@@ -132,6 +132,7 @@ function createGame({ room, players, cards, now = Date.now(), rng = Math.random 
     continueVotes: [],
     continueCountdownStartedAt: null,
     continueReturnAt: null,
+    resultInfo: createResultInfo(gamePlayers),
     createdAt: now,
     startedAt: null,
     finishedAt: null,
@@ -217,10 +218,38 @@ function publicMatch(match) {
   };
 }
 
+function drawCountRow(game) {
+  return game.players.map((player) => player.drawPile.length);
+}
+
+function createResultInfo(gamePlayers) {
+  return {
+    players: gamePlayers.map((player) => ({
+      clientId: player.clientId,
+      username: player.username,
+    })),
+    counts: [gamePlayers.map((player) => player.drawPile.length)],
+  };
+}
+
+function recordResultInfoRow(game) {
+  if (!game.resultInfo) return;
+  game.resultInfo.counts[game.playCount] = drawCountRow(game);
+}
+
+function publicResultInfo(game) {
+  if (game.status !== "finished" || !game.resultInfo) return undefined;
+  return {
+    players: game.resultInfo.players.map((player) => ({ ...player })),
+    counts: game.resultInfo.counts.map((row) => row.slice()),
+  };
+}
+
 function publicGame(game) {
   return {
     ...game,
     settings: clone(game.settings),
+    resultInfo: publicResultInfo(game),
     spectators: game.spectators.slice(),
     preLastTopCards: (game.preLastTopCards || []).map(publicTopEntry),
     lastMatch: publicMatch(game.lastMatch),
@@ -401,6 +430,7 @@ function performPlayCard(game, clientId, { now = Date.now(), auto = false } = {}
   if (!game.settings.allowEmptyBell && player.drawPile.length === 0) {
     eliminatePlayer(game, player.clientId, "牌堆耗尽");
   }
+  recordResultInfoRow(game);
 
   game.turnIndex = nextTurnIndex(game, playerIndex);
   if (game.settings.allowEmptyBell) eliminateEmptyDuelPlayers(game);
@@ -476,6 +506,7 @@ function performRingBell(game, clientId, { now = Date.now(), rng = Math.random }
     game.lockMessage = `${player.username}匹配成功：${match.pmvName}`;
     game.turnIndex = game.players.findIndex((item) => item.clientId === clientId);
     if (game.settings.allowEmptyBell) eliminateEmptyDuelPlayers(game);
+    recordResultInfoRow(game);
     setTurnTiming(game, game.lockedUntil, 1000, { manualOnly: true });
     addLog(game, `${player.username}正确按铃，匹配 ${match.pmvName}，赢得 ${wonCards.length} 张牌。`);
   } else {
@@ -524,6 +555,7 @@ function performRingBell(game, clientId, { now = Date.now(), rng = Math.random }
       eliminatePlayer(game, player.clientId, "牌堆耗尽");
     }
     if (game.settings.allowEmptyBell) eliminateEmptyDuelPlayers(game);
+    recordResultInfoRow(game);
     setTurnTiming(game, game.lockedUntil, 1000, { manualOnly: true });
   }
 

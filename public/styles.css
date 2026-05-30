@@ -742,12 +742,85 @@ th button {
   border-radius: 8px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, .52);
   left: 50%;
-  max-width: min(520px, 92vw);
+  max-width: min(760px, 94vw);
   padding: 20px;
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
+  width: 720px;
   z-index: 10;
+}
+
+.result-chart {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.result-chart svg {
+  background: rgba(8, 11, 8, .42);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 8px;
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.result-grid {
+  stroke: rgba(255, 255, 255, .1);
+  stroke-width: 1;
+}
+
+.result-axis {
+  stroke: rgba(255, 255, 255, .42);
+  stroke-width: 1.4;
+}
+
+.result-axis-label {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.result-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+
+.result-line.winner {
+  filter: drop-shadow(0 0 8px rgba(243, 215, 117, .55));
+  stroke-width: 4;
+}
+
+.result-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.result-legend-item {
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+  padding: 4px 9px;
+}
+
+.result-legend-item.winner {
+  border-color: rgba(243, 215, 117, .7);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.result-swatch {
+  border-radius: 999px;
+  display: inline-block;
+  height: 9px;
+  width: 20px;
 }
 
 @media (max-width: 720px) {
@@ -777,5 +850,12 @@ th button {
 
   .table-area {
     min-height: 450px;
+  }
+
+  .result-modal {
+    max-height: 88vh;
+    overflow: auto;
+    padding: 14px;
+    width: 94vw;
   }
 }

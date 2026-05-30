@@ -1,2 +1,4 @@
 data/*.json
 node_modules/
+docs/
+plan.txt

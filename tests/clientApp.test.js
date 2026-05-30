@@ -48,7 +48,15 @@ function loadClientWithFetch(fetchImpl) {
     },
   };
   vm.createContext(context);
-  vm.runInContext(`${code}\nglobalThis.__app = app; globalThis.__refresh = refresh;`, context);
+  vm.runInContext(`${code}
+globalThis.__app = app;
+globalThis.__refresh = refresh;
+globalThis.__helpers = {
+  buildResultChartModel: typeof buildResultChartModel === "function" ? buildResultChartModel : undefined,
+  resultReplayProgress: typeof resultReplayProgress === "function" ? resultReplayProgress : undefined,
+  canContinueAfterResultReplay: typeof canContinueAfterResultReplay === "function" ? canContinueAfterResultReplay : undefined,
+  turnBannerDetail: typeof turnBannerDetail === "function" ? turnBannerDetail : undefined,
+};`, context);
   return context;
 }
 
@@ -88,4 +96,68 @@ test("client refresh ignores stale bootstrap responses that finish late", async 
   await staleRefresh;
 
   assert.equal(context.__app.snapshot.currentRoom, null);
+});
+
+function sampleFinishedGame() {
+  return {
+    status: "finished",
+    playCount: 4,
+    winnerId: "b",
+    resultInfo: {
+      players: [
+        { clientId: "a", username: "A" },
+        { clientId: "b", username: "B" },
+      ],
+      counts: [
+        [3, 3],
+        [2, 3],
+        [2, 4],
+        [1, 4],
+        [1, 5],
+      ],
+    },
+    players: [
+      { clientId: "a", username: "A", connected: true },
+      { clientId: "b", username: "B", connected: true },
+    ],
+  };
+}
+
+test("result chart model keeps fixed domains and clips lines continuously", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const model = context.__helpers.buildResultChartModel(sampleFinishedGame(), 2.5);
+
+  assert.equal(model.xMax, 4);
+  assert.equal(model.yMax, 5);
+  assert.equal(model.series.length, 2);
+  assert.equal(model.series[1].winner, true);
+  assert.deepEqual(Array.from(model.series[0].points.map((point) => point.x)), [0, 1, 2, 2.5]);
+  assert.equal(model.series[0].points[3].y, 1.5);
+});
+
+test("result replay progresses at twenty cards per second and gates continue", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const progressGame = { ...sampleFinishedGame(), playCount: 10 };
+  const gateGame = sampleFinishedGame();
+
+  assert.equal(context.__helpers.resultReplayProgress(progressGame, 1000, 1250), 5);
+  assert.equal(context.__helpers.canContinueAfterResultReplay(gateGame, 1000, 1199), false);
+  assert.equal(context.__helpers.canContinueAfterResultReplay(gateGame, 1000, 1200), true);
+});
+
+test("turn banner detail shows countdown only for connected current players", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const self = { clientId: "a" };
+  const current = { clientId: "a", username: "A", connected: true };
+  const game = { status: "playing", turnDeadlineAt: 9000 };
+
+  assert.match(context.__helpers.turnBannerDetail(game, current, self, false, 1000), /8 秒/);
+  assert.equal(
+    context.__helpers.turnBannerDetail(game, { ...current, connected: false }, self, false, 1000),
+    "玩家掉线，等待自动出牌",
+  );
+  assert.equal(
+    context.__helpers.turnBannerDetail({ status: "playing", turnDeadlineAt: 90000 }, current, self, false, 1000),
+    "点击高亮牌堆出牌",
+  );
 });
