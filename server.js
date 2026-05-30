@@ -57,7 +57,7 @@ function createApp(options = {}) {
     for (const game of state.games.values()) {
       if (game.status === "finished") {
         const room = state.rooms.get(game.roomId);
-        if (room && maybeReturnToWaiting(room, game, state)) changed = true;
+        if (room && room.gameId === game.id && maybeReturnToWaiting(room, game, state)) changed = true;
         continue;
       }
       if (game.status !== "playing") continue;
@@ -301,6 +301,7 @@ async function handleApi(req, res, url, pathname, context) {
     if (action === "continue") {
       const room = state.rooms.get(game.roomId);
       if (!room) throw new Error("房间不存在。");
+      if (room.gameId !== game.id) throw new Error("这局游戏已经结算完成。");
       if (!game.continueVotes.includes(clientId)) game.continueVotes.push(clientId);
       maybeReturnToWaiting(room, game, state);
       broadcast(state);
@@ -611,7 +612,7 @@ function setConnected(state, clientId, connected) {
       if (!connected && game.status === "playing" && game.players[game.turnIndex]?.clientId === clientId && game.settings.disconnectProtection) {
         setTurnTiming(game, Date.now(), 0);
       }
-      if (room && game.status === "finished") room.status = "finished";
+      if (room && room.gameId === game.id && game.status === "finished") room.status = "finished";
     }
   }
 }

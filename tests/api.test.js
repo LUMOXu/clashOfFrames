@@ -429,6 +429,59 @@ test("resetting a finished room does not resurrect players who already left", as
   }
 });
 
+test("old finished game cannot reclaim a room after it has returned to waiting", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const p1 = await register(base, "Host Old Game");
+    const p2 = await register(base, "Leaves Waiting Room");
+    const p3 = await register(base, "Old Game Stayer");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 3, maxPlayers: 8, isPublic: true, libraryIds },
+    }));
+    const roomId = created.room.id;
+    await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p2));
+    await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p3));
+    const started = await request(base, "POST", `/api/rooms/${roomId}/start`, payload(p1));
+    await loadingProgress(base, roomId, p1, 1, 1, true);
+    await loadingProgress(base, roomId, p2, 1, 1, true);
+    await loadingProgress(base, roomId, p3, 1, 1, true);
+
+    const game = state.games.get(started.game.id);
+    const room = state.rooms.get(roomId);
+    game.status = "finished";
+    game.winnerId = p1.clientId;
+    game.finishedAt = Date.now();
+    game.continueVotes = [p1.clientId, p2.clientId, p3.clientId];
+    game.continueCountdownStartedAt = Date.now() - 11000;
+    game.continueReturnAt = Date.now() - 1;
+    room.status = "finished";
+
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    assert.equal(room.status, "waiting");
+    assert.equal(room.gameId, null);
+    assert.equal(room.players.includes(p2.clientId), true);
+
+    await request(base, "POST", `/api/rooms/${roomId}/leave`, payload(p2));
+    assert.equal(room.players.includes(p2.clientId), false);
+    await new Promise((resolve) => setTimeout(resolve, 650));
+
+    const p2Bootstrap = await request(base, "GET", `/api/bootstrap?token=${encodeURIComponent(p2.token)}`);
+    const publicBootstrap = await request(base, "GET", "/api/bootstrap");
+    const publicRoom = publicBootstrap.rooms.find((item) => item.id === roomId);
+
+    assert.equal(p2Bootstrap.currentRoom, null);
+    assert.equal(publicRoom.players.some((player) => player.clientId === p2.clientId), false);
+  } finally {
+    await close(server);
+  }
+});
+
 test("automatic play emits the same play-card audio event as manual play", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
   const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
