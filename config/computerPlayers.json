@@ -1,0 +1,59 @@
+{
+  "players": [
+    {
+      "id": "computer_easy",
+      "name": "慢速观众",
+      "description": "反应较慢，偶尔会看漏匹配，也比较容易错按。",
+      "playDelayMeanSeconds": 5,
+      "playDelayStdSeconds": 2,
+      "reactionMeanSeconds": 5,
+      "reactionStdSeconds": 3,
+      "matchDetectionProbability": 0.3,
+      "falseRingProbability": 0.15
+    },
+    {
+      "id": "computer_casual",
+      "name": "休闲剪辑师",
+      "description": "比新手稳定一些，但抢铃仍然偏慢。",
+      "playDelayMeanSeconds": 4.1,
+      "playDelayStdSeconds": 1.5,
+      "reactionMeanSeconds": 4,
+      "reactionStdSeconds": 2.3,
+      "matchDetectionProbability": 0.47,
+      "falseRingProbability": 0.1
+    },
+    {
+      "id": "computer_normal",
+      "name": "稳定观测者",
+      "description": "中等难度，能发现多数明显匹配。",
+      "playDelayMeanSeconds": 3.25,
+      "playDelayStdSeconds": 1,
+      "reactionMeanSeconds": 3,
+      "reactionStdSeconds": 1.6,
+      "matchDetectionProbability": 0.64,
+      "falseRingProbability": 0.06
+    },
+    {
+      "id": "computer_hard",
+      "name": "快速追帧者",
+      "description": "出牌和反应都很快，错按较少。",
+      "playDelayMeanSeconds": 2.35,
+      "playDelayStdSeconds": 0.5,
+      "reactionMeanSeconds": 2,
+      "reactionStdSeconds": 1,
+      "matchDetectionProbability": 0.81,
+      "falseRingProbability": 0.03
+    },
+    {
+      "id": "computer_master",
+      "name": "帧封冠军",
+      "description": "最高难度，几乎不会漏看匹配，错按概率极低。",
+      "playDelayMeanSeconds": 1.5,
+      "playDelayStdSeconds": 0,
+      "reactionMeanSeconds": 1,
+      "reactionStdSeconds": 0.5,
+      "matchDetectionProbability": 0.97,
+      "falseRingProbability": 0.01
+    }
+  ]
+}

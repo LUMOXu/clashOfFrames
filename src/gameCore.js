@@ -1,10 +1,13 @@
 "use strict";
 
 const DEFAULT_SETTINGS = {
-  minPlayers: 3,
+  minPlayers: 2,
   maxPlayers: 8,
   isPublic: true,
   libraryIds: [],
+  libraryCopies: {},
+  startVoteThresholdMode: "auto",
+  startVoteThreshold: null,
   allowEmptyBell: false,
   randomBacks: false,
   conflictResolution: true,
@@ -37,19 +40,32 @@ function shuffle(items, rng = Math.random) {
   return out;
 }
 
-function normalizeSettings(input = {}, availableLibraryIds = []) {
+function normalizeSettings(input = {}, availableLibraryIds = [], libraryCardCounts = new Map()) {
   const merged = { ...DEFAULT_SETTINGS, ...input };
-  const minPlayers = Math.max(3, Math.min(8, Number.parseInt(merged.minPlayers, 10) || 3));
+  const minPlayers = Math.max(2, Math.min(8, Number.parseInt(merged.minPlayers, 10) || 2));
   const maxPlayers = Math.max(minPlayers, Math.min(8, Number.parseInt(merged.maxPlayers, 10) || 8));
   const selectedLibraries = Array.isArray(merged.libraryIds) ? merged.libraryIds : [];
   const validSelected = selectedLibraries.filter((id) => availableLibraryIds.includes(id));
   const libraryIds = validSelected.length > 0 ? [...new Set(validSelected)] : availableLibraryIds.slice(0, 1);
+  const inputCopies = merged.libraryCopies && typeof merged.libraryCopies === "object" ? merged.libraryCopies : {};
+  const libraryCopies = {};
+  libraryIds.forEach((id) => {
+    const cardCount = Math.max(1, Number.parseInt(libraryCardCounts.get?.(id) ?? 0, 10) || 1);
+    const limit = Math.max(1, Math.floor(120 / cardCount));
+    const raw = Number.parseInt(inputCopies[id], 10) || 1;
+    libraryCopies[id] = Math.max(1, Math.min(limit, raw));
+  });
+  const thresholdMode = merged.startVoteThresholdMode === "manual" ? "manual" : "auto";
+  const thresholdValue = Number.parseInt(merged.startVoteThreshold, 10);
 
   return {
     minPlayers,
     maxPlayers,
     isPublic: Boolean(merged.isPublic),
     libraryIds,
+    libraryCopies,
+    startVoteThresholdMode: thresholdMode,
+    startVoteThreshold: Number.isFinite(thresholdValue) ? Math.max(1, Math.min(8, thresholdValue)) : null,
     allowEmptyBell: Boolean(merged.allowEmptyBell),
     randomBacks: Boolean(merged.randomBacks),
     conflictResolution: merged.conflictResolution !== false,
@@ -81,16 +97,19 @@ function createGame({ room, players, cards, now = Date.now(), rng = Math.random 
   const gamePlayers = players.map((player, index) => ({
     clientId: player.clientId,
     username: player.username,
+    isComputer: Boolean(player.isComputer),
+    computerId: player.computerId || null,
+    statsId: player.statsId || player.clientId,
     connected: player.connected !== false,
     eliminated: false,
     exited: false,
-    ready: false,
-    loadingLoaded: 0,
-    loadingTotal: 0,
-    loadingProgress: 0,
-    loadingCached: false,
-    loadingStartedAt: null,
-    loadingFinishedAt: null,
+    ready: Boolean(player.isComputer),
+    loadingLoaded: player.isComputer ? 1 : 0,
+    loadingTotal: player.isComputer ? 1 : 0,
+    loadingProgress: player.isComputer ? 100 : 0,
+    loadingCached: Boolean(player.isComputer),
+    loadingStartedAt: player.isComputer ? now : null,
+    loadingFinishedAt: player.isComputer ? now : null,
     drawPile: hands[index],
     displayPile: [],
     eliminatedAt: null,
@@ -258,6 +277,9 @@ function publicGame(game) {
     players: game.players.map((player) => ({
       clientId: player.clientId,
       username: player.username,
+      isComputer: player.isComputer,
+      computerId: player.computerId,
+      statsId: player.statsId,
       connected: player.connected,
       eliminated: player.eliminated,
       exited: player.exited,
@@ -646,6 +668,9 @@ function summarizeGameForStats(game) {
     players: game.players.map((player) => ({
       clientId: player.clientId,
       username: player.username,
+      isComputer: player.isComputer,
+      computerId: player.computerId,
+      statsId: player.statsId,
       rank: player.rank || null,
       stats: clone(player.stats),
     })),

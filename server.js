@@ -12,12 +12,13 @@ const {
   startPlaying,
   performPlayCard,
   performRingBell,
+  findCurrentMatch,
   markConnection,
   checkGameOver,
   setTurnTiming,
   summarizeGameForStats,
 } = require("./src/gameCore");
-const { discoverCardLibraries } = require("./src/cardLibraries");
+const { discoverCardLibraries, cardsGroupedByPmv } = require("./src/cardLibraries");
 
 const ROOT_DIR = __dirname;
 const DEFAULT_PORT = Number.parseInt(process.env.PORT || "3000", 10);
@@ -26,12 +27,14 @@ const PASSWORD_ITERATIONS = 210000;
 const PASSWORD_KEY_LENGTH = 32;
 const PASSWORD_DIGEST = "sha256";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const WAITING_DISCONNECT_KICK_MS = 2 * 60 * 1000;
 
 function createApp(options = {}) {
   const rootDir = options.rootDir || ROOT_DIR;
   const dataFile = options.dataFile || path.join(rootDir, "data", "state.json");
   const publicDir = path.join(rootDir, "public");
   const cardLibraries = discoverCardLibraries(rootDir);
+  const computerPlayers = loadComputerPlayers(rootDir);
   const data = loadData(dataFile);
   const state = {
     players: new Map(),
@@ -42,9 +45,14 @@ function createApp(options = {}) {
     disconnectTimers: new Map(),
     data,
   };
+  computerPlayers.forEach((computer) => {
+    const stats = ensureStats(data, `computer:${computer.id}`, computer.name);
+    stats.isComputer = true;
+    stats.computerId = computer.id;
+  });
 
   const server = http.createServer((req, res) => {
-    handleRequest(req, res, { rootDir, publicDir, dataFile, cardLibraries, state })
+    handleRequest(req, res, { rootDir, publicDir, dataFile, cardLibraries, computerPlayers, state })
       .catch((error) => {
         const statusCode = error.statusCode || 500;
         if (statusCode >= 500) console.error(error);
@@ -54,6 +62,22 @@ function createApp(options = {}) {
 
   const tick = setInterval(() => {
     let changed = false;
+    const now = Date.now();
+    for (const room of state.rooms.values()) {
+      if (room.status === "waiting" && pruneWaitingDisconnectedPlayers(room, state, now)) {
+        changed = true;
+      }
+      if (room.status === "waiting" && room.startAt && now >= room.startAt) {
+        try {
+          startRoomGame(room, state, cardLibraries);
+          changed = true;
+        } catch (error) {
+          room.startCountdownStartedAt = null;
+          room.startAt = null;
+          changed = true;
+        }
+      }
+    }
     for (const game of state.games.values()) {
       if (game.status === "finished") {
         const room = state.rooms.get(game.roomId);
@@ -61,8 +85,15 @@ function createApp(options = {}) {
         continue;
       }
       if (game.status !== "playing") continue;
-      const now = Date.now();
       if (game.lockedUntil > now) continue;
+      const computerChanged = advanceComputerPlayers(game, state, now);
+      if (computerChanged.played) emitAudioEvent(state, "play-card", { roomId: game.roomId, gameId: game.id });
+      if (computerChanged.rang) emitAudioEvent(state, "ring-bell", { roomId: game.roomId, gameId: game.id });
+      if (computerChanged.changed) {
+        finalizeGameIfNeeded(game, state, dataFile);
+        changed = true;
+        continue;
+      }
       const player = game.players[game.turnIndex];
       if (player && player.connected === false && game.settings.disconnectProtection) {
         const disconnectedDeadline = (game.turnStartedAt || game.turnAvailableAt || now) + 2000;
@@ -76,7 +107,7 @@ function createApp(options = {}) {
       }
     }
     if (changed) broadcast(state);
-  }, 500);
+  }, 100);
 
   server.on("close", () => clearInterval(tick));
   return { server, state, cardLibraries };
@@ -98,16 +129,32 @@ async function handleRequest(req, res, context) {
 }
 
 async function handleApi(req, res, url, pathname, context) {
-  const { state, cardLibraries, dataFile } = context;
+  const { state, cardLibraries, computerPlayers, dataFile } = context;
   const body = req.method === "POST" ? await readBody(req) : {};
 
   if (req.method === "GET" && pathname === "/api/bootstrap") {
     const auth = optionalAuth(req, url, body, context);
-    return sendJson(res, 200, snapshotFor(auth?.clientId || "", state, cardLibraries));
+    return sendJson(res, 200, snapshotFor(auth?.clientId || "", state, cardLibraries, computerPlayers));
   }
 
   if (req.method === "GET" && pathname === "/api/card-libraries") {
     return sendJson(res, 200, publicLibraries(cardLibraries));
+  }
+
+  if (req.method === "GET" && pathname === "/api/computer-players") {
+    return sendJson(res, 200, { players: publicComputerPlayers(computerPlayers) });
+  }
+
+  if (req.method === "GET" && pathname === "/api/card-viewer") {
+    const requested = url.searchParams.getAll("libraryIds")
+      .flatMap((value) => value.split(","))
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return sendJson(res, 200, cardViewerPayload(requested, cardLibraries));
+  }
+
+  if (req.method === "GET" && pathname === "/api/pmv-index") {
+    return sendJson(res, 200, pmvIndexPayload(cardLibraries));
   }
 
   if (req.method === "POST" && pathname === "/api/register") {
@@ -166,6 +213,10 @@ async function handleApi(req, res, url, pathname, context) {
   if (req.method === "POST" && pathname === "/api/rooms") {
     const { player } = requireAuth(req, url, body, context);
     const room = createRoom(state, player, body.settings || {}, cardLibraries);
+    (Array.isArray(body.computerIds) ? body.computerIds : []).forEach((computerId) => {
+      addComputerToRoom(room, String(computerId), state, computerPlayers);
+    });
+    evaluateStartVotes(room, state);
     broadcast(state);
     return sendJson(res, 201, { room: roomSummary(room, state) });
   }
@@ -192,6 +243,7 @@ async function handleApi(req, res, url, pathname, context) {
     if (action === "join") {
       const player = ensureKnownPlayer(state, clientId);
       const result = joinRoom(room, player, state);
+      evaluateStartVotes(room, state);
       broadcast(state);
       return sendJson(res, 200, result);
     }
@@ -202,6 +254,7 @@ async function handleApi(req, res, url, pathname, context) {
         advanceLoading(room, affectedGame, state);
       }
       if (affectedGame) finalizeGameIfNeeded(affectedGame, state, dataFile);
+      if (state.rooms.has(room.id)) evaluateStartVotes(room, state);
       broadcast(state);
       return sendJson(res, 200, { ok: true });
     }
@@ -212,11 +265,55 @@ async function handleApi(req, res, url, pathname, context) {
       if (room.status !== "waiting") throw new Error("只有等待中房间可以修改设置。");
       room.settings = {
         ...room.settings,
-        ...normalizeSettings({ ...room.settings, ...(body.settings || {}) }, cardLibraries.map((library) => library.id)),
+        ...normalizeSettings({ ...room.settings, ...(body.settings || {}) }, cardLibraries.map((library) => library.id), libraryCardCountMap(cardLibraries)),
         minPlayers: room.settings.minPlayers,
         maxPlayers: room.settings.maxPlayers,
         isPublic: room.settings.isPublic,
       };
+      evaluateStartVotes(room, state);
+      broadcast(state);
+      return sendJson(res, 200, { room: roomSummary(room, state) });
+    }
+
+    if (action === "add-computer") {
+      ensureHost(room, clientId);
+      if (room.status !== "waiting") throw new Error("只有等待中房间可以邀请人机。");
+      const computerId = requiredString(body.computerId, "computerId");
+      addComputerToRoom(room, computerId, state, computerPlayers);
+      evaluateStartVotes(room, state);
+      broadcast(state);
+      return sendJson(res, 200, { room: roomSummary(room, state) });
+    }
+
+    if (action === "remove-computer") {
+      ensureHost(room, clientId);
+      if (room.status !== "waiting") throw new Error("只有等待中房间可以移除人机。");
+      removeComputerFromRoom(room, requiredString(body.computerId, "computerId"), state);
+      evaluateStartVotes(room, state);
+      broadcast(state);
+      return sendJson(res, 200, { room: roomSummary(room, state) });
+    }
+
+    if (action === "start-vote") {
+      if (!room.players.includes(clientId)) throw httpError(403, "只有房间内玩家可以投票开始。");
+      if (!room.startVotes.includes(clientId)) room.startVotes.push(clientId);
+      evaluateStartVotes(room, state);
+      broadcast(state);
+      return sendJson(res, 200, { room: roomSummary(room, state) });
+    }
+
+    if (action === "cancel-start-vote") {
+      room.startVotes = (room.startVotes || []).filter((id) => id !== clientId);
+      evaluateStartVotes(room, state);
+      broadcast(state);
+      return sendJson(res, 200, { room: roomSummary(room, state) });
+    }
+
+    if (action === "chat") {
+      if (!room.players.includes(clientId) && !room.spectators.includes(clientId)) {
+        throw httpError(403, "只有房间内成员可以聊天。");
+      }
+      addChatMessage(room, ensureKnownPlayer(state, clientId), body.message);
       broadcast(state);
       return sendJson(res, 200, { room: roomSummary(room, state) });
     }
@@ -370,7 +467,7 @@ function handleEvents(req, res, url, context) {
 function createRoom(state, player, settingsInput, cardLibraries) {
   leaveOtherRooms(state, player.clientId);
   const roomId = allocateRoomId(state);
-  const settings = normalizeSettings(settingsInput, cardLibraries.map((library) => library.id));
+  const settings = normalizeSettings(settingsInput, cardLibraries.map((library) => library.id), libraryCardCountMap(cardLibraries));
   const room = {
     id: roomId,
     hostId: player.clientId,
@@ -380,6 +477,10 @@ function createRoom(state, player, settingsInput, cardLibraries) {
     settings,
     gameId: null,
     lastWinnerId: null,
+    startVotes: [],
+    startCountdownStartedAt: null,
+    startAt: null,
+    chatMessages: [],
     createdAt: Date.now(),
   };
   state.rooms.set(roomId, room);
@@ -413,18 +514,281 @@ function joinRoom(room, player, state) {
   return { room: roomSummary(room, state), game: game ? publicGame(game) : null, spectator: true };
 }
 
+function libraryCardCountMap(cardLibraries) {
+  return new Map(cardLibraries.map((library) => [library.id, library.cardCount]));
+}
+
+function expandedCardsForRoom(room, cardLibraries) {
+  const selectedIds = new Set(room.settings.libraryIds);
+  return cardLibraries
+    .filter((library) => selectedIds.has(library.id))
+    .flatMap((library) => {
+      const copies = Math.max(1, Number.parseInt(room.settings.libraryCopies?.[library.id], 10) || 1);
+      return Array.from({ length: copies }, (_, copyIndex) => library.cards.map((card) => ({
+        ...card,
+        id: copies === 1 ? card.id : `${card.id}#copy${copyIndex + 1}`,
+        copyIndex: copyIndex + 1,
+      }))).flat();
+    });
+}
+
+function addComputerToRoom(room, computerId, state, computerPlayers) {
+  if (room.players.length >= room.settings.maxPlayers) throw new Error("房间人数已满。");
+  if (room.players.some((clientId) => state.players.get(clientId)?.computerId === computerId)) {
+    throw new Error("该人机已经在房间中。");
+  }
+  const profile = computerPlayers.find((computer) => computer.id === computerId);
+  if (!profile) throw new Error("人机不存在。");
+  const clientId = `computer:${room.id}:${profile.id}`;
+  const player = {
+    clientId,
+    username: profile.name,
+    connected: true,
+    isComputer: true,
+    computerId: profile.id,
+    statsId: `computer:${profile.id}`,
+    currentRoomId: room.id,
+    joinedAt: Date.now(),
+    lastSeenAt: Date.now(),
+    profile,
+  };
+  state.players.set(clientId, player);
+  room.players.push(clientId);
+  if (!room.startVotes.includes(clientId)) room.startVotes.push(clientId);
+  ensureStats(state.data, player.statsId, player.username).isComputer = true;
+  ensureStats(state.data, player.statsId, player.username).computerId = profile.id;
+  return player;
+}
+
+function removeComputerFromRoom(room, computerId, state) {
+  const clientId = room.players.find((id) => state.players.get(id)?.computerId === computerId);
+  if (!clientId) throw new Error("该人机不在房间中。");
+  room.players = room.players.filter((id) => id !== clientId);
+  room.startVotes = (room.startVotes || []).filter((id) => id !== clientId);
+  state.players.delete(clientId);
+}
+
+function startVoteRequirement(room) {
+  const currentPlayers = room.players.length;
+  if (room.settings.startVoteThresholdMode === "manual" && room.settings.startVoteThreshold) {
+    return Math.max(1, Math.min(currentPlayers || 1, Number.parseInt(room.settings.startVoteThreshold, 10) || 1));
+  }
+  return Math.max(1, currentPlayers - 2);
+}
+
+function evaluateStartVotes(room, state, now = Date.now()) {
+  if (room.status !== "waiting") return false;
+  const before = `${room.startCountdownStartedAt || ""}:${room.startAt || ""}`;
+  const voteSet = new Set((room.startVotes || []).filter((clientId) => room.players.includes(clientId)));
+  room.players.forEach((clientId) => {
+    if (state.players.get(clientId)?.isComputer) voteSet.add(clientId);
+  });
+  room.startVotes = [...voteSet];
+  const validVotes = room.startVotes.length;
+  const required = startVoteRequirement(room);
+  const ready = room.players.length >= room.settings.minPlayers && validVotes >= required;
+  if (!ready) {
+    room.startCountdownStartedAt = null;
+    room.startAt = null;
+  } else if (!room.startAt) {
+    room.startCountdownStartedAt = now;
+    room.startAt = now + 10000;
+  }
+  return before !== `${room.startCountdownStartedAt || ""}:${room.startAt || ""}`;
+}
+
+function pruneWaitingDisconnectedPlayers(room, state, now = Date.now()) {
+  if (room.status !== "waiting") return false;
+  const beforePlayers = room.players.length;
+  const beforeSpectators = room.spectators.length;
+  const shouldKick = (clientId) => {
+    const player = state.players.get(clientId);
+    if (!player || player.isComputer || player.connected !== false) return false;
+    return now - (player.lastSeenAt || now) >= WAITING_DISCONNECT_KICK_MS;
+  };
+  const kickedIds = new Set([...room.players, ...room.spectators].filter(shouldKick));
+  if (kickedIds.size === 0) return false;
+  kickedIds.forEach((clientId) => {
+    const player = state.players.get(clientId);
+    if (player?.currentRoomId === room.id) player.currentRoomId = null;
+  });
+  room.players = room.players.filter((clientId) => !kickedIds.has(clientId));
+  room.spectators = room.spectators.filter((clientId) => !kickedIds.has(clientId));
+  room.startVotes = (room.startVotes || []).filter((clientId) => room.players.includes(clientId));
+  if (room.hostId && kickedIds.has(room.hostId)) migrateHost(room, state);
+  evaluateStartVotes(room, state, now);
+  if (!hasHumanOccupants(room, state)) {
+    deleteRoom(room, state);
+  }
+  return room.players.length !== beforePlayers || room.spectators.length !== beforeSpectators;
+}
+
+function addChatMessage(room, player, rawMessage) {
+  const message = sanitizeChatMessage(rawMessage);
+  if (!message) throw new Error("聊天内容不能为空。");
+  if (!Array.isArray(room.chatMessages)) room.chatMessages = [];
+  room.chatMessages.push({
+    id: crypto.randomUUID(),
+    at: Date.now(),
+    clientId: player.clientId,
+    username: player.username,
+    message,
+  });
+  if (room.chatMessages.length > 100) room.chatMessages.splice(0, room.chatMessages.length - 100);
+}
+
+function sanitizeChatMessage(value) {
+  return [...String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim()]
+    .slice(0, 40)
+    .join("");
+}
+
+function advanceComputerPlayers(game, state, now = Date.now()) {
+  const result = { changed: false, played: false, rang: false };
+  for (const player of game.players) {
+    if (!player.isComputer || player.eliminated || player.exited) continue;
+    const profile = state.players.get(player.clientId)?.profile;
+    if (!profile) continue;
+    if (!player.computerState) player.computerState = { name: "start", observedPlayCount: game.playCount };
+    const stateName = player.computerState.name;
+
+    if (stateName === "start") {
+      player.computerState = {
+        name: !tableHasDisplayCards(game) && canComputerPlay(game, player, now) ? "play" : "wait",
+        observedPlayCount: game.playCount,
+      };
+      continue;
+    }
+
+    if (stateName === "wait") {
+      if (game.playCount !== player.computerState.observedPlayCount) {
+        player.computerState = { name: "analysis", observedPlayCount: game.playCount };
+      } else if (canComputerPlay(game, player, now)) {
+        player.computerState = { name: "play", observedPlayCount: game.playCount };
+      }
+      continue;
+    }
+
+    if (stateName === "play") {
+      if (!canComputerPlay(game, player, now)) {
+        if (game.players[game.turnIndex]?.clientId !== player.clientId) {
+          player.computerState = { name: "analysis", observedPlayCount: game.playCount };
+        }
+        continue;
+      }
+      if (!player.computerState.actionAt) {
+        player.computerState.actionAt = Math.max(now, game.turnAvailableAt || now) + sampleClampedMs(profile.playDelayMeanSeconds, profile.playDelayStdSeconds, 1500, 7000);
+        continue;
+      }
+      if (now >= player.computerState.actionAt) {
+        const played = performPlayCard(game, player.clientId, { now, auto: true });
+        player.computerState = { name: "analysis", observedPlayCount: game.playCount };
+        if (played.ok) {
+          result.changed = true;
+          result.played = true;
+          return result;
+        }
+      }
+      continue;
+    }
+
+    if (stateName === "analysis") {
+      const match = findCurrentMatch(game);
+      const shouldRing = match
+        ? Math.random() < profile.matchDetectionProbability
+        : Math.random() < profile.falseRingProbability;
+      player.computerState = shouldRing
+        ? {
+            name: "ring",
+            observedPlayCount: game.playCount,
+            actionAt: now + sampleClampedMs(profile.reactionMeanSeconds, profile.reactionStdSeconds, 100, Number.MAX_SAFE_INTEGER),
+          }
+        : { name: "next", observedPlayCount: game.playCount };
+      continue;
+    }
+
+    if (stateName === "ring") {
+      if (game.playCount !== player.computerState.observedPlayCount) {
+        player.computerState = { name: "analysis", observedPlayCount: game.playCount };
+        continue;
+      }
+      if (game.lockedUntil > now) {
+        player.computerState = { name: "next", observedPlayCount: game.playCount };
+        continue;
+      }
+      if (now >= player.computerState.actionAt) {
+        const rang = performRingBell(game, player.clientId, { now });
+        player.computerState = rang.ok && game.lockedUntil > now
+          ? { name: "settling", waitUntil: game.lockedUntil, observedPlayCount: game.playCount }
+          : { name: "next", observedPlayCount: game.playCount };
+        if (rang.ok) {
+          result.changed = true;
+          result.rang = true;
+          return result;
+        }
+      }
+      continue;
+    }
+
+    if (stateName === "settling") {
+      if (now >= (player.computerState.waitUntil || 0)) {
+        player.computerState = { name: "next", observedPlayCount: game.playCount };
+      }
+      continue;
+    }
+
+    if (stateName === "next") {
+      player.computerState = {
+        name: canComputerPlay(game, player, now) ? "play" : "wait",
+        observedPlayCount: game.playCount,
+      };
+    }
+  }
+  return result;
+}
+
+function tableHasDisplayCards(game) {
+  return game.players.some((player) => player.displayPile.length > 0);
+}
+
+function canComputerPlay(game, player, now) {
+  return game.status === "playing"
+    && game.lockedUntil <= now
+    && game.players[game.turnIndex]?.clientId === player.clientId
+    && !player.eliminated
+    && !player.exited
+    && player.drawPile.length > 0
+    && now >= (game.turnAvailableAt || 0);
+}
+
+function sampleClampedMs(meanSeconds, stdSeconds, minMs, maxMs) {
+  const mean = Number(meanSeconds) || 0;
+  const std = Math.max(0, Number(stdSeconds) || 0);
+  const sampled = std === 0 ? mean : mean + gaussianRandom() * std;
+  return Math.max(minMs, Math.min(maxMs, Math.round(sampled * 1000)));
+}
+
+function gaussianRandom() {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
 function startRoomGame(room, state, cardLibraries) {
   if (room.status !== "waiting") throw new Error("房间不在等待状态。");
   if (room.players.length < room.settings.minPlayers) throw new Error("人数不足，无法开始游戏。");
-  const cards = cardLibraries
-    .filter((library) => room.settings.libraryIds.includes(library.id))
-    .flatMap((library) => library.cards);
+  const cards = expandedCardsForRoom(room, cardLibraries);
   if (cards.length < room.players.length) throw new Error("选中的卡牌太少，无法发牌。");
   const players = room.players.map((clientId) => ensureKnownPlayer(state, clientId));
   const game = createGame({ room, players, cards });
   state.games.set(game.id, game);
   room.gameId = game.id;
   room.status = "loading";
+  room.startVotes = [];
+  room.startCountdownStartedAt = null;
+  room.startAt = null;
   return game;
 }
 
@@ -532,6 +896,7 @@ function deleteRoom(room, state) {
   ids.forEach((clientId) => {
     const player = state.players.get(clientId);
     if (player?.currentRoomId === room.id) player.currentRoomId = null;
+    if (player?.isComputer) state.players.delete(clientId);
   });
   if (game) {
     if (game.status !== "finished") game.status = "aborted";
@@ -559,6 +924,7 @@ function finalizeGameIfNeeded(game, state, dataFile) {
   state.data.matchHistory.unshift(summary);
   if (state.data.matchHistory.length > 200) state.data.matchHistory.length = 200;
   summary.players.forEach((entry) => updatePlayerStats(state.data, entry, summary));
+  updateComputerDefeatStats(state.data, summary);
   const room = state.rooms.get(game.roomId);
   if (room) {
     room.status = "finished";
@@ -568,8 +934,11 @@ function finalizeGameIfNeeded(game, state, dataFile) {
 }
 
 function updatePlayerStats(data, playerEntry, matchSummary) {
-  const stats = ensureStats(data, playerEntry.clientId, playerEntry.username);
+  const statsId = playerEntry.statsId || playerEntry.clientId;
+  const stats = ensureStats(data, statsId, playerEntry.username);
   stats.username = playerEntry.username;
+  stats.isComputer = Boolean(playerEntry.isComputer);
+  stats.computerId = playerEntry.computerId || stats.computerId || null;
   stats.gamesPlayed += 1;
   stats.wins += playerEntry.clientId === matchSummary.winnerId ? 1 : 0;
   stats.rings += playerEntry.stats.rings;
@@ -590,6 +959,21 @@ function updatePlayerStats(data, playerEntry, matchSummary) {
     wonCards: playerEntry.stats.wonCards,
   });
   if (stats.history.length > 100) stats.history.length = 100;
+}
+
+function updateComputerDefeatStats(data, summary) {
+  const computers = summary.players.filter((entry) => entry.isComputer && entry.computerId && entry.rank);
+  summary.players
+    .filter((entry) => !entry.isComputer && entry.rank)
+    .forEach((entry) => {
+      const stats = ensureStats(data, entry.statsId || entry.clientId, entry.username);
+      stats.defeatedComputers = stats.defeatedComputers || {};
+      computers.forEach((computer) => {
+        if (entry.rank < computer.rank) {
+          stats.defeatedComputers[computer.computerId] = (stats.defeatedComputers[computer.computerId] || 0) + 1;
+        }
+      });
+    });
 }
 
 function setConnected(state, clientId, connected) {
@@ -639,7 +1023,7 @@ function leaveOtherRooms(state, clientId, keepRoomId = null) {
       game.spectators = game.spectators.filter((id) => id !== clientId);
     }
 
-    if (room.players.length === 0 && room.spectators.length === 0) {
+    if (!hasHumanOccupants(room, state)) {
       deleteRoom(room, state);
       continue;
     }
@@ -675,7 +1059,7 @@ function leaveRoom(room, clientId, state) {
   const player = state.players.get(clientId);
   if (player?.currentRoomId === room.id) player.currentRoomId = null;
 
-  if (room.players.length === 0 && room.spectators.length === 0) {
+  if (!hasHumanOccupants(room, state)) {
     deleteRoom(room, state);
   } else if (room.hostId === clientId) {
     migrateHost(room, state);
@@ -685,9 +1069,19 @@ function leaveRoom(room, clientId, state) {
 }
 
 function migrateHost(room, state) {
-  if (room.players.includes(room.hostId) && state.players.get(room.hostId)?.connected !== false) return;
-  const nextHost = room.players.find((clientId) => state.players.get(clientId)?.connected !== false) || room.players[0];
+  if (room.players.includes(room.hostId) && state.players.get(room.hostId)?.connected !== false && !state.players.get(room.hostId)?.isComputer) return;
+  const nextHost = room.players.find((clientId) => {
+    const player = state.players.get(clientId);
+    return player && !player.isComputer && player.connected !== false;
+  }) || room.players.find((clientId) => !state.players.get(clientId)?.isComputer);
   if (nextHost) room.hostId = nextHost;
+}
+
+function hasHumanOccupants(room, state) {
+  return [...room.players, ...room.spectators].some((clientId) => {
+    const player = state.players.get(clientId);
+    return player && !player.isComputer;
+  });
 }
 
 function ensureLegacyUsernameAvailable(state, username, clientId) {
@@ -815,6 +1209,9 @@ function publicPlayer(player) {
   return {
     clientId: player.clientId,
     username: player.username,
+    isComputer: Boolean(player.isComputer),
+    computerId: player.computerId || null,
+    statsId: player.statsId || player.clientId,
     connected: player.connected !== false,
     currentRoomId: player.currentRoomId || null,
     joinedAt: player.joinedAt,
@@ -865,9 +1262,13 @@ function ensureStats(data, clientId, username = "玩家") {
       wrongRings: 0,
       wonCards: 0,
       totalRank: 0,
+      isComputer: false,
+      computerId: null,
+      defeatedComputers: {},
       history: [],
     };
   }
+  data.players[clientId].defeatedComputers = data.players[clientId].defeatedComputers || {};
   return data.players[clientId];
 }
 
@@ -882,6 +1283,9 @@ function profileFor(clientId, data) {
     wrongRings: 0,
     wonCards: 0,
     totalRank: 0,
+    isComputer: false,
+    computerId: null,
+    defeatedComputers: {},
     history: [],
   };
   return enrichStats(stats);
@@ -908,7 +1312,7 @@ function enrichStats(stats) {
   };
 }
 
-function snapshotFor(clientId, state, cardLibraries) {
+function snapshotFor(clientId, state, cardLibraries, computerPlayers = []) {
   const player = state.players.get(clientId) || null;
   const rooms = [...state.rooms.values()].map((room) => roomSummary(room, state));
   let assignedRoom = player?.currentRoomId ? state.rooms.get(player.currentRoomId) : null;
@@ -922,6 +1326,7 @@ function snapshotFor(clientId, state, cardLibraries) {
     serverTime: Date.now(),
     player: publicPlayer(player),
     cardLibraries: publicLibraries(cardLibraries),
+    computerPlayers: publicComputerPlayers(computerPlayers),
     rooms,
     currentRoom: currentRoom ? roomSummary(currentRoom, state) : null,
     currentGame: currentGame ? publicGame(currentGame) : null,
@@ -944,12 +1349,20 @@ function roomSummary(room, state) {
     createdAt: room.createdAt,
     playerCount: room.players.length,
     spectatorCount: room.spectators.length,
+    startVotes: (room.startVotes || []).slice(),
+    startVoteRequired: startVoteRequirement(room),
+    startCountdownStartedAt: room.startCountdownStartedAt || null,
+    startAt: room.startAt || null,
+    chatMessages: (room.chatMessages || []).slice(-100).map((message) => ({ ...message })),
     players: room.players.map((clientId) => {
       const player = state.players.get(clientId);
       const gamePlayer = game?.players.find((item) => item.clientId === clientId);
       return {
         clientId,
         username: player?.username || gamePlayer?.username || "玩家",
+        isComputer: Boolean(player?.isComputer || gamePlayer?.isComputer),
+        computerId: player?.computerId || gamePlayer?.computerId || null,
+        statsId: player?.statsId || gamePlayer?.statsId || clientId,
         connected: gamePlayer ? gamePlayer.connected : player?.connected !== false,
         eliminated: gamePlayer?.eliminated || false,
         ready: gamePlayer?.ready || false,
@@ -970,11 +1383,57 @@ function publicLibraries(cardLibraries) {
   return cardLibraries.map((library) => ({
     id: library.id,
     name: library.name,
+    title: library.title,
+    curator: library.curator,
+    description: library.description,
     backUrl: library.backUrl,
     cardCount: library.cardCount,
     pmvCount: library.pmvCount,
     manifest: library.manifest,
   }));
+}
+
+function publicComputerPlayers(computerPlayers) {
+  return computerPlayers.map((computer) => ({ ...computer }));
+}
+
+function cardViewerPayload(requestedIds, cardLibraries) {
+  const ids = requestedIds.length ? new Set(requestedIds) : new Set(cardLibraries.slice(0, 1).map((library) => library.id));
+  const libraries = cardLibraries.filter((library) => ids.has(library.id));
+  const assets = new Set();
+  libraries.forEach((library) => {
+    assets.add(library.backUrl);
+    library.cards.forEach((card) => assets.add(card.imageUrl));
+  });
+  const fingerprint = crypto.createHash("sha256")
+    .update(JSON.stringify(libraries.map((library) => ({
+      id: library.id,
+      cardCount: library.cardCount,
+      cards: library.cards.map((card) => card.imageUrl),
+    }))))
+    .digest("hex")
+    .slice(0, 20);
+  return {
+    key: `card-viewer-${fingerprint}`,
+    assets: [...assets],
+    libraries: libraries.map((library) => ({
+      ...publicLibraries([library])[0],
+      pmvs: cardsGroupedByPmv(library),
+    })),
+  };
+}
+
+function pmvIndexPayload(cardLibraries) {
+  const rows = cardLibraries
+    .flatMap((library) => library.manifest.map((entry) => ({
+      libraryId: library.id,
+      libraryName: library.name,
+      pmvId: entry.pmvId,
+      name: entry.name,
+      author: entry.author,
+    })))
+    .sort((a, b) => a.pmvId - b.pmvId || a.libraryName.localeCompare(b.libraryName, "zh-Hans-CN"));
+  return { rows };
 }
 
 function assetManifestForRoom(room, cardLibraries) {
@@ -1158,6 +1617,35 @@ function loadData(dataFile) {
 function saveData(data, dataFile) {
   fs.mkdirSync(path.dirname(dataFile), { recursive: true });
   fs.writeFileSync(dataFile, JSON.stringify(data, null, 2), "utf8");
+}
+
+function loadComputerPlayers(rootDir) {
+  const filePath = path.join(rootDir, "config", "computerPlayers.json");
+  const raw = fs.readFileSync(filePath, "utf8");
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed.players)) throw new Error("config/computerPlayers.json must contain players.");
+  return parsed.players.map((player) => ({
+    id: cleanComputerId(player.id),
+    name: cleanName(String(player.name || "Computer")),
+    description: String(player.description || "").trim(),
+    playDelayMeanSeconds: Number(player.playDelayMeanSeconds),
+    playDelayStdSeconds: Number(player.playDelayStdSeconds),
+    reactionMeanSeconds: Number(player.reactionMeanSeconds),
+    reactionStdSeconds: Number(player.reactionStdSeconds),
+    matchDetectionProbability: clampProbability(player.matchDetectionProbability),
+    falseRingProbability: clampProbability(player.falseRingProbability),
+  }));
+}
+
+function cleanComputerId(value) {
+  const id = String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "");
+  if (!id) throw new Error("Computer id is required.");
+  return id;
+}
+
+function clampProbability(value) {
+  const number = Number(value);
+  return Math.max(0, Math.min(1, Number.isFinite(number) ? number : 0));
 }
 
 function getClientIp(req) {

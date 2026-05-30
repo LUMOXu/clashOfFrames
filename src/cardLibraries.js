@@ -8,18 +8,58 @@ function toUrlPath(parts) {
 }
 
 function parseManifest(text) {
-  const names = new Map();
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return manifestResult([]);
+  if (trimmed.startsWith("[")) {
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) throw new Error("manifest.json must be a list.");
+    return manifestResult(parsed.map((entry) => normalizeManifestEntry(entry)).filter(Boolean));
+  }
+  return parseLegacyManifest(trimmed);
+}
+
+function parseLegacyManifest(text) {
+  const entries = [];
   text.split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .forEach((line) => {
       const comma = line.indexOf(",");
       if (comma < 0) return;
-      const id = Number.parseInt(line.slice(0, comma), 10);
+      const pmvId = Number.parseInt(line.slice(0, comma), 10);
       const name = line.slice(comma + 1).trim();
-      if (Number.isFinite(id)) names.set(id, name);
+      if (Number.isFinite(pmvId)) {
+        entries.push({ pmvId, name, author: null, description: null, link: null });
+      }
     });
-  return names;
+  return manifestResult(entries);
+}
+
+function normalizeManifestEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const pmvId = Number.parseInt(entry.pmv_id ?? entry.pmvId, 10);
+  if (!Number.isFinite(pmvId)) return null;
+  return {
+    pmvId,
+    name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : `PMV ${pmvId}`,
+    author: nullableString(entry.author),
+    description: nullableString(entry.description),
+    link: nullableString(entry.link),
+  };
+}
+
+function nullableString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function manifestResult(entries) {
+  const sorted = entries.slice().sort((a, b) => a.pmvId - b.pmvId);
+  return {
+    entries: sorted,
+    byId: new Map(sorted.map((entry) => [entry.pmvId, entry])),
+  };
 }
 
 function parseCardFile(fileName) {
@@ -28,6 +68,45 @@ function parseCardFile(fileName) {
   return {
     pmvId: Number.parseInt(match[1], 10),
     shot: match[2],
+  };
+}
+
+function libraryCopyLimit(library) {
+  const cardCount = Math.max(1, Number.parseInt(library?.cardCount, 10) || 1);
+  return Math.max(1, Math.floor(120 / cardCount));
+}
+
+function cardsGroupedByPmv(library) {
+  const manifestEntries = Array.isArray(library?.manifest) ? library.manifest : [];
+  const byId = new Map(manifestEntries.map((entry) => [entry.pmvId, entry]));
+  const cardsByPmv = new Map();
+  (library?.cards || []).forEach((card) => {
+    if (!cardsByPmv.has(card.pmvId)) cardsByPmv.set(card.pmvId, []);
+    cardsByPmv.get(card.pmvId).push(card);
+  });
+  const ids = [...new Set([...byId.keys(), ...cardsByPmv.keys()])].sort((a, b) => a - b);
+  return ids.map((pmvId) => {
+    const meta = byId.get(pmvId) || { pmvId, name: `PMV ${pmvId}`, author: null, description: null, link: null };
+    const shots = (cardsByPmv.get(pmvId) || [])
+      .slice()
+      .sort((a, b) => String(a.shot).localeCompare(String(b.shot), "en"));
+    return {
+      ...meta,
+      shots: shots.map((card) => ({
+        id: card.id,
+        shot: card.shot,
+        imageUrl: card.imageUrl,
+      })),
+    };
+  });
+}
+
+function splitLibraryName(folderName) {
+  const at = folderName.indexOf("@");
+  if (at < 0) return { title: folderName, curator: null };
+  return {
+    title: folderName.slice(0, at).trim() || folderName,
+    curator: folderName.slice(at + 1).trim() || null,
   };
 }
 
@@ -40,7 +119,9 @@ function discoverCardLibraries(rootDir) {
     .map((entry) => {
       const libraryId = entry.name;
       const libraryDir = path.join(cardsRoot, libraryId);
-      const manifestPath = path.join(libraryDir, "manifest.txt");
+      const manifestJsonPath = path.join(libraryDir, "manifest.json");
+      const manifestTxtPath = path.join(libraryDir, "manifest.txt");
+      const manifestPath = fs.existsSync(manifestJsonPath) ? manifestJsonPath : manifestTxtPath;
       const cardsDir = path.join(libraryDir, "cards");
       const backPath = path.join(libraryDir, "back.png");
       if (!fs.existsSync(manifestPath) || !fs.existsSync(cardsDir) || !fs.existsSync(backPath)) {
@@ -49,6 +130,7 @@ function discoverCardLibraries(rootDir) {
 
       const manifest = parseManifest(fs.readFileSync(manifestPath, "utf8"));
       const backUrl = toUrlPath(["cards", libraryId, "back.png"]);
+      const libraryName = splitLibraryName(libraryId);
       const cards = fs.readdirSync(cardsDir, { withFileTypes: true })
         .filter((cardEntry) => cardEntry.isFile() && /\.(?:png|jpe?g)$/i.test(cardEntry.name))
         .map((cardEntry) => {
@@ -59,7 +141,10 @@ function discoverCardLibraries(rootDir) {
             libraryId,
             fileName: cardEntry.name,
             pmvId: parsed.pmvId,
-            pmvName: manifest.get(parsed.pmvId) || `PMV ${parsed.pmvId}`,
+            pmvName: manifest.byId.get(parsed.pmvId)?.name || `PMV ${parsed.pmvId}`,
+            pmvAuthor: manifest.byId.get(parsed.pmvId)?.author || null,
+            pmvDescription: manifest.byId.get(parsed.pmvId)?.description || null,
+            pmvLink: manifest.byId.get(parsed.pmvId)?.link || null,
             shot: parsed.shot,
             imageUrl: toUrlPath(["cards", libraryId, "cards", cardEntry.name]),
             backUrl,
@@ -71,10 +156,13 @@ function discoverCardLibraries(rootDir) {
       return {
         id: libraryId,
         name: libraryId,
-        manifest: [...manifest.entries()].map(([pmvId, name]) => ({ pmvId, name })),
+        title: libraryName.title,
+        curator: libraryName.curator,
+        description: null,
+        manifest: manifest.entries,
         backUrl,
         cardCount: cards.length,
-        pmvCount: manifest.size,
+        pmvCount: manifest.entries.length,
         cards,
       };
     })
@@ -86,4 +174,6 @@ module.exports = {
   discoverCardLibraries,
   parseManifest,
   parseCardFile,
+  cardsGroupedByPmv,
+  libraryCopyLimit,
 };

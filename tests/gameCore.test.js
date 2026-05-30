@@ -46,11 +46,47 @@ function sampleGame(settings = {}) {
 }
 
 test("normalizes room settings and clamps player counts", () => {
-  const settings = normalizeSettings({ minPlayers: 1, maxPlayers: 2, libraryIds: ["x"] }, ["lib"]);
-  assert.equal(settings.minPlayers, 3);
-  assert.equal(settings.maxPlayers, 3);
+  const settings = normalizeSettings({
+    minPlayers: 1,
+    maxPlayers: 1,
+    libraryIds: ["x", "lib"],
+    libraryCopies: { lib: 99 },
+    startVoteThresholdMode: "manual",
+    startVoteThreshold: 99,
+  }, ["lib"], new Map([["lib", 50]]));
+  assert.equal(settings.minPlayers, 2);
+  assert.equal(settings.maxPlayers, 2);
   assert.deepEqual(settings.libraryIds, ["lib"]);
+  assert.deepEqual(settings.libraryCopies, { lib: 2 });
+  assert.equal(settings.startVoteThresholdMode, "manual");
+  assert.equal(settings.startVoteThreshold, 8);
   assert.equal(settings.conflictResolution, true);
+});
+
+test("public game exposes computer identity without hiding normal state", () => {
+  const room = {
+    id: "1",
+    settings: normalizeSettings({ minPlayers: 2, libraryIds: ["lib"] }, ["lib"]),
+  };
+  const players = [
+    { clientId: "human", username: "Human", connected: true },
+    {
+      clientId: "computer:1:easy",
+      username: "Computer Easy",
+      connected: true,
+      isComputer: true,
+      computerId: "easy",
+      statsId: "computer:easy",
+    },
+  ];
+  const cards = Array.from({ length: 4 }, (_, index) => sampleCard(`card-${index}`, index));
+  const game = createGame({ room, players, cards, now: 1000, rng: () => 0.1 });
+  const snapshot = publicGame(game);
+
+  assert.equal(snapshot.players[1].isComputer, true);
+  assert.equal(snapshot.players[1].computerId, "easy");
+  assert.equal(snapshot.players[1].statsId, "computer:easy");
+  assert.equal(snapshot.players[1].ready, true);
 });
 
 test("deals equal card counts and discards leftovers", () => {

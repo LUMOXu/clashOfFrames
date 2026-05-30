@@ -56,6 +56,10 @@ globalThis.__helpers = {
   resultReplayProgress: typeof resultReplayProgress === "function" ? resultReplayProgress : undefined,
   canContinueAfterResultReplay: typeof canContinueAfterResultReplay === "function" ? canContinueAfterResultReplay : undefined,
   turnBannerDetail: typeof turnBannerDetail === "function" ? turnBannerDetail : undefined,
+  startVoteRequirement: typeof startVoteRequirement === "function" ? startVoteRequirement : undefined,
+  libraryCopyLimit: typeof libraryCopyLimit === "function" ? libraryCopyLimit : undefined,
+  formatChatLine: typeof formatChatLine === "function" ? formatChatLine : undefined,
+  renderPlayerLabel: typeof renderPlayerLabel === "function" ? renderPlayerLabel : undefined,
 };`, context);
   return context;
 }
@@ -160,4 +164,20 @@ test("turn banner detail shows countdown only for connected current players", ()
     context.__helpers.turnBannerDetail({ status: "playing", turnDeadlineAt: 90000 }, current, self, false, 1000),
     "点击高亮牌堆出牌",
   );
+});
+
+test("client helpers format voting, copies, chat, and computer labels", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const room = {
+    players: [{}, {}, {}, {}],
+    settings: { startVoteThresholdMode: "auto", startVoteThreshold: null },
+  };
+
+  assert.equal(context.__helpers.startVoteRequirement(room), 2);
+  assert.equal(context.__helpers.libraryCopyLimit({ cardCount: 45 }), 2);
+  assert.equal(
+    context.__helpers.formatChatLine({ at: 1000, username: "User", message: "<hello>" }),
+    `[${new Date(1000).toLocaleTimeString("zh-CN", { hour12: false })}][User]<hello>`,
+  );
+  assert.match(context.__helpers.renderPlayerLabel({ username: "Bot", isComputer: true }), /Computer/);
 });

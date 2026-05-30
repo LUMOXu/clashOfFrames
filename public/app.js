@@ -6,8 +6,11 @@ const app = {
   snapshot: null,
   profile: null,
   leaderboard: null,
+  pmvIndex: null,
+  cardViewer: { loading: false, payload: null, key: "", selectedLibraryIds: [], loaded: 0, total: 0 },
   profileLoading: false,
   leaderboardLoading: false,
+  pmvIndexLoading: false,
   route: { name: "home" },
   message: "",
   toast: null,
@@ -16,6 +19,7 @@ const app = {
     profile: { key: "at", dir: "desc" },
     players: { key: "wins", dir: "desc" },
     matches: { key: "playCount", dir: "desc" },
+    pmvIndex: { key: "pmvId", dir: "asc" },
   },
   eventSource: null,
   refreshInFlight: null,
@@ -156,6 +160,7 @@ function render() {
   const content = app.route.name === "auth" || !app.snapshot.player ? renderAuth() : renderShell();
   root.innerHTML = content;
   if (app.route.name === "loading") beginPreload();
+  if (app.route.name === "card-loading") beginCardViewerPreload();
   scheduleCountdownRender();
 }
 
@@ -197,6 +202,7 @@ function renderShell() {
       ${app.message ? `<main class="page"><div class="message">${escapeHtml(app.message)}</div></main>` : ""}
       ${app.toast ? `<div class="toast">${escapeHtml(app.toast.message)}</div>` : ""}
       ${renderRoute()}
+      <footer class="app-footer">Version 1.1, Built by LUMO_Xu &amp; DrowningYu with good vibes.</footer>
     </div>
   `;
 }
@@ -209,6 +215,10 @@ function renderRoute() {
   if (route === "rules") return renderRules();
   if (route === "profile") return renderProfile();
   if (route === "leaderboard") return renderLeaderboard();
+  if (route === "card-select") return renderCardSelect();
+  if (route === "card-loading") return renderCardLoading();
+  if (route === "card-info") return renderCardInfo();
+  if (route === "pmv-index") return renderPmvIndex();
   if (route === "waiting") return renderWaiting();
   if (route === "settings") return renderRoomSettings();
   if (route === "loading") return renderLoading();
@@ -266,6 +276,8 @@ function renderHome() {
           <button class="primary" data-action="create">创建房间</button>
           <button data-action="join">加入房间</button>
           <button data-action="rooms">查看房间</button>
+          <button data-action="card-select">查看卡牌</button>
+          <button data-action="pmv-index">PMV id 查询</button>
           <button data-action="rules">游戏规则</button>
           <button data-action="profile">个人信息</button>
           <button data-action="leaderboard">排行榜</button>
@@ -285,10 +297,10 @@ function renderCreateRoom() {
         <form id="create-room-form" class="grid">
           <div class="form-grid">
             <label>房间最小人数
-              <input name="minPlayers" type="number" min="3" max="8" value="3">
+              <input name="minPlayers" type="number" min="2" max="8" value="2">
             </label>
             <label>房间最大人数
-              <input name="maxPlayers" type="number" min="3" max="8" value="8">
+              <input name="maxPlayers" type="number" min="2" max="8" value="8">
             </label>
           </div>
           <label class="toggle-row">
@@ -296,6 +308,8 @@ function renderCreateRoom() {
             <input name="isPublic" type="checkbox" checked>
           </label>
           ${renderLibraryPicker(libs)}
+          ${renderComputerPicker(app.snapshot.computerPlayers || [])}
+          ${renderStartVoteSettings()}
           ${renderAdvancedSettings()}
           <div class="actions">
             <button class="primary" type="submit">创建房间</button>
@@ -439,15 +453,18 @@ function renderWaiting() {
         <div class="grid">
           ${room.players.map((player) => `
             <div class="card player-row">
-              <span>${escapeHtml(player.username)} ${player.clientId === room.hostId ? `<span class="pill ok">房主</span>` : ""}</span>
+              <span>${renderPlayerLabel(player)} ${player.clientId === room.hostId ? `<span class="pill ok">房主</span>` : ""}</span>
               <span class="pill ${player.connected ? "ok" : "warn"}">${player.connected ? "在线" : "掉线"}</span>
             </div>
           `).join("")}
         </div>
+        ${renderStartVotePanel(room)}
+        ${isHost ? renderComputerManager(room) : ""}
         <div class="actions">
           ${isHost ? `<button data-action="settings">房间设置</button><button data-action="transfer">转让房主</button><button class="primary" data-action="start-game" ${room.players.length < room.settings.minPlayers ? "disabled" : ""}>开始游戏</button><button class="danger" data-action="disband-room">解散房间</button>` : ""}
           <button data-action="home">回主菜单</button>
         </div>
+        ${renderChat(room)}
       </section>
     </main>
   `;
@@ -462,7 +479,8 @@ function renderRoomSettings() {
       <section class="panel">
         <h2>房间设置</h2>
         <form id="room-settings-form" class="grid">
-          ${renderLibraryPicker(app.snapshot.cardLibraries, room.settings.libraryIds)}
+          ${renderLibraryPicker(app.snapshot.cardLibraries, room.settings.libraryIds, room.settings.libraryCopies)}
+          ${renderStartVoteSettings(room.settings)}
           ${renderAdvancedSettings(room.settings)}
           <div class="actions">
             <button class="primary" type="submit">保存设置</button>
@@ -496,6 +514,92 @@ function renderTransferHost(room) {
   `;
 }
 
+function renderComputerStats(computer) {
+  return `
+    <span class="computer-stats">
+      出牌 ${fmtNum(computer.playDelayMeanSeconds)}±${fmtNum(computer.playDelayStdSeconds)}s ·
+      反应 ${fmtNum(computer.reactionMeanSeconds)}±${fmtNum(computer.reactionStdSeconds)}s ·
+      发现 ${fmtPct(computer.matchDetectionProbability)} · 错按 ${fmtPct(computer.falseRingProbability)}
+    </span>
+  `;
+}
+
+function renderComputerManager(room) {
+  const computers = app.snapshot.computerPlayers || [];
+  const present = new Set(room.players.filter((player) => player.isComputer).map((player) => player.computerId));
+  if (!computers.length) return "";
+  return `
+    <div class="panel computer-manager">
+      <h3>人机玩家</h3>
+      <div class="computer-list">
+        ${computers.map((computer) => {
+          const inRoom = present.has(computer.id);
+          return `
+            <div class="computer-row">
+              <div>
+                <strong>${escapeHtml(computer.name)}</strong>
+                <div class="muted">${escapeHtml(computer.description || "")}</div>
+                ${renderComputerStats(computer)}
+              </div>
+              <button data-action="${inRoom ? "remove-computer" : "add-computer"}" data-computer="${escapeAttr(computer.id)}" ${!inRoom && room.players.length >= room.settings.maxPlayers ? "disabled" : ""}>${inRoom ? "移除" : "邀请"}</button>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderStartVotePanel(room) {
+  const voted = (room.startVotes || []).includes(app.clientId);
+  const remaining = room.startAt ? Math.max(0, Math.ceil((room.startAt - Date.now()) / 1000)) : null;
+  return `
+    <div class="panel vote-panel">
+      <h3>投票开始</h3>
+      <p class="status-line">${(room.startVotes || []).length}/${startVoteRequirement(room)} 票，当前 ${room.players.length} 人。</p>
+      ${remaining !== null ? `<p class="status-line">倒计时 ${remaining} 秒后自动开始。</p>` : ""}
+      <div class="actions">
+        <button class="primary" data-action="start-vote" ${voted ? "disabled" : ""}>投票开始</button>
+        <button data-action="cancel-start-vote" ${voted ? "" : "disabled"}>取消投票</button>
+      </div>
+    </div>
+  `;
+}
+
+function startVoteRequirement(room) {
+  if (room?.startVoteRequired) return room.startVoteRequired;
+  const count = room?.players?.length || 0;
+  if (room?.settings?.startVoteThresholdMode === "manual" && room.settings.startVoteThreshold) {
+    return Math.max(1, Math.min(count || 1, Number.parseInt(room.settings.startVoteThreshold, 10) || 1));
+  }
+  return Math.max(1, count - 2);
+}
+
+function renderChat(room, mode = "") {
+  const messages = room?.chatMessages || [];
+  return `
+    <section class="chat-area ${mode === "game" ? "game-chat" : ""}">
+      <h3>聊天</h3>
+      <div class="chat-messages">
+        ${messages.length ? messages.map((message) => `<div>${escapeHtml(formatChatLine(message))}</div>`).join("") : `<div class="muted">暂无聊天。</div>`}
+      </div>
+      <form id="chat-form" class="chat-form">
+        <input name="message" maxlength="40" autocomplete="off" placeholder="最多 40 字">
+        <button type="submit">发送</button>
+      </form>
+    </section>
+  `;
+}
+
+function formatChatLine(message) {
+  const time = new Date(message.at).toLocaleTimeString("zh-CN", { hour12: false });
+  return `[${time}][${message.username}]${message.message}`;
+}
+
+function renderPlayerLabel(player) {
+  return `${escapeHtml(player.username || "玩家")} ${player.isComputer ? `<span class="pill">Computer</span>` : ""}`;
+}
+
 function renderLoading() {
   const room = currentRoom();
   const game = app.snapshot.currentGame;
@@ -510,6 +614,7 @@ function renderLoading() {
         <div class="loading-list">
           ${rows.map(renderLoadingRow).join("")}
         </div>
+        ${renderChat(room)}
       </section>
     </main>
   `;
@@ -575,8 +680,11 @@ function renderGame() {
         ${renderActionAnimation(game)}
         ${game.status === "finished" ? renderResult(game) : ""}
       </section>
-      <section class="log-area">
-        ${game.logs.map((log) => `<div>${escapeHtml(log.text)}</div>`).join("")}
+      <section class="game-bottom">
+        <div class="log-area">
+          ${game.logs.map((log) => `<div>${escapeHtml(log.text)}</div>`).join("")}
+        </div>
+        ${renderChat(room, "game")}
       </section>
     </main>
   `;
@@ -605,26 +713,38 @@ function renderTurnBanner(game, current, self, locked) {
 }
 
 function renderStations(game, current, canPlay) {
-  return playerLayouts(game.players).map(({ player, x, y }) => {
+  const layouts = playerLayouts(game.players);
+  const self = game.players.find((item) => item.clientId === app.clientId);
+  const stationInfo = layouts.map(({ player, x, y }) => {
+    const isCurrent = current?.clientId === player.clientId;
+    return `
+      <div class="station ${isCurrent ? "current" : ""} ${player.eliminated ? "eliminated" : ""}" style="left:${x}%;top:${y}%">
+        <div class="station-name">${renderPlayerLabel(player)} ${player.connected ? "" : "（退出）"} ${player.eliminated ? "（淘汰）" : ""}</div>
+        <div class="count">未出 ${drawCount(player)} | 已出 ${displayCount(player)}</div>
+        ${isCurrent ? renderTurnBanner(game, current, self, game.lockedUntil > Date.now()) : ""}
+      </div>
+    `;
+  }).join("");
+  const drawLayer = layouts.map(({ player, drawX, drawY }) => {
     const own = player.clientId === app.clientId;
     const isCurrent = current?.clientId === player.clientId;
     const visibleDrawPile = visualDrawPile(player, game);
     return `
-      <div class="station ${isCurrent ? "current" : ""} ${player.eliminated ? "eliminated" : ""}" style="left:${x}%;top:${y}%">
-        <div class="station-name">${escapeHtml(player.username)} ${player.connected ? "" : "（退出）"} ${player.eliminated ? "（淘汰）" : ""}</div>
-        <div class="piles">
-          <button class="draw-stack" data-action="play-card" ${own && canPlay ? "" : "disabled"} title="出牌">
-            ${renderBackStack(visibleDrawPile)}
-          </button>
-          <div class="display-stack">
-            ${renderDisplayStack(player.displayPile)}
-          </div>
-        </div>
-        <div class="count">未出 ${drawCount(player)} | 已出 ${displayCount(player)}</div>
-        ${isCurrent ? renderTurnBanner(game, current, game.players.find((item) => item.clientId === app.clientId), game.lockedUntil > Date.now()) : ""}
-      </div>
+      <button class="draw-stack table-pile ${isCurrent ? "current" : ""}" style="left:${drawX}%;top:${drawY}%" data-action="play-card" ${own && canPlay ? "" : "disabled"} title="出牌">
+        ${renderBackStack(visibleDrawPile)}
+      </button>
     `;
   }).join("");
+  const displayLayer = layouts.map(({ player, displayX, displayY }) => `
+    <div class="display-stack table-pile ${player.eliminated ? "eliminated" : ""}" style="left:${displayX}%;top:${displayY}%">
+      ${renderDisplayStack(player.displayPile)}
+    </div>
+  `).join("");
+  return `
+    <div class="station-layer">${stationInfo}</div>
+    <div class="pile-layer draw-layer">${drawLayer}</div>
+    <div class="pile-layer display-layer">${displayLayer}</div>
+  `;
 }
 
 function drawCount(player) {
@@ -938,6 +1058,10 @@ function renderProfile() {
           <div class="card">赢牌 ${profile.wonCards}</div>
           <div class="card">平均排名 ${fmtNum(profile.averageRank)}</div>
         </div>
+        <h3>战胜人机</h3>
+        <div class="menu-grid">
+          ${(app.snapshot.computerPlayers || []).map((computer) => `<div class="card">${escapeHtml(computer.name)}：${Number(profile.defeatedComputers?.[computer.id] || 0)}</div>`).join("")}
+        </div>
         ${renderTable("profile", history, [
           ["at", "时间", (row) => formatDate(row.at)],
           ["roomId", "房间", (row) => row.roomId],
@@ -958,21 +1082,28 @@ function renderLeaderboard() {
     loadLeaderboard();
     return `<main class="page"><section class="panel"><h2>排行榜</h2><p class="muted">加载中...</p></section></main>`;
   }
-  const players = sortRows(leaderboard.players, app.sorts.players);
+  const computers = app.snapshot.computerPlayers || [];
+  const playerRows = leaderboard.players.map((row) => ({
+    ...row,
+    ...Object.fromEntries(computers.map((computer) => [`defeated_${computer.id}`, row.defeatedComputers?.[computer.id] || 0])),
+  }));
+  const players = sortRows(playerRows, app.sorts.players);
   const matches = sortRows(leaderboard.matches, app.sorts.matches);
+  const playerColumns = [
+    ["username", "玩家", (row) => `${row.username}${row.isComputer ? " Computer" : ""}`],
+    ["gamesPlayed", "对局", (row) => row.gamesPlayed],
+    ["wins", "胜场", (row) => row.wins],
+    ["winRate", "胜率", (row) => fmtPct(row.winRate)],
+    ["correctRate", "按铃正确率", (row) => fmtPct(row.correctRate)],
+    ["wonCards", "赢牌", (row) => row.wonCards],
+    ["averageRank", "平均排名", (row) => fmtNum(row.averageRank)],
+    ...computers.map((computer) => [`defeated_${computer.id}`, `胜 ${computer.name}`, (row) => row[`defeated_${computer.id}`] || 0]),
+  ];
   return `
     <main class="page">
       <section class="panel grid">
         <h2>排行榜</h2>
-        ${renderTable("players", players, [
-          ["username", "玩家", (row) => row.username],
-          ["gamesPlayed", "对局", (row) => row.gamesPlayed],
-          ["wins", "胜场", (row) => row.wins],
-          ["winRate", "胜率", (row) => fmtPct(row.winRate)],
-          ["correctRate", "按铃正确率", (row) => fmtPct(row.correctRate)],
-          ["wonCards", "赢牌", (row) => row.wonCards],
-          ["averageRank", "平均排名", (row) => fmtNum(row.averageRank)],
-        ])}
+        ${renderTable("players", players, playerColumns)}
         <h3>对局记录</h3>
         ${renderTable("matches", matches, [
           ["at", "时间", (row) => formatDate(row.at)],
@@ -981,6 +1112,108 @@ function renderLeaderboard() {
           ["playCount", "出牌数", (row) => row.playCount],
           ["bellCount", "拍铃数", (row) => row.bellCount],
           ["successBellCount", "成功", (row) => row.successBellCount],
+        ])}
+      </section>
+    </main>
+  `;
+}
+
+function renderCardSelect() {
+  const selected = new Set(app.cardViewer.selectedLibraryIds.length ? app.cardViewer.selectedLibraryIds : app.snapshot.cardLibraries.slice(0, 1).map((library) => library.id));
+  return `
+    <main class="page">
+      <section class="panel">
+        <h2>卡组选择</h2>
+        <form id="card-view-form" class="grid">
+          <div class="library-list">
+            ${app.snapshot.cardLibraries.map((library) => `
+              <label class="library-row">
+                <span>
+                  <strong>${escapeHtml(library.name)}</strong>
+                  <span class="pill">${library.cardCount} 张 / ${library.pmvCount} PMV</span>
+                  <span class="muted">整理者：${escapeHtml(library.curator || "未知")}</span>
+                </span>
+                <input name="libraryIds" value="${escapeAttr(library.id)}" type="checkbox" ${selected.has(library.id) ? "checked" : ""}>
+              </label>
+            `).join("")}
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit">查看</button>
+            <button type="button" data-action="home">返回</button>
+          </div>
+        </form>
+      </section>
+    </main>
+  `;
+}
+
+function renderCardLoading() {
+  return `
+    <main class="page narrow">
+      <section class="panel">
+        <h2>查看卡牌加载</h2>
+        <p class="status-line">${app.cardViewer.loaded}/${app.cardViewer.total || 0} 个资源</p>
+        <div class="loading-bar"><div class="loading-fill" style="width:${app.cardViewer.total ? Math.round(app.cardViewer.loaded / app.cardViewer.total * 100) : 0}%"></div></div>
+      </section>
+    </main>
+  `;
+}
+
+function renderCardInfo() {
+  const payload = app.cardViewer.payload;
+  if (!payload) {
+    setRoute("card-loading", { libraryIds: app.cardViewer.selectedLibraryIds });
+    return renderCardLoading();
+  }
+  const active = payload.libraries.find((library) => library.id === (app.cardViewer.activeLibraryId || payload.libraries[0]?.id)) || payload.libraries[0];
+  if (!active) return `<main class="page"><section class="panel"><h2>卡牌信息</h2><p class="muted">没有可展示的卡组。</p></section></main>`;
+  app.cardViewer.activeLibraryId = active.id;
+  return `
+    <main class="page">
+      <section class="panel grid">
+        <h2>卡牌信息</h2>
+        <div class="tabs">
+          ${payload.libraries.map((library) => `<button class="${library.id === active.id ? "primary" : ""}" data-action="card-tab" data-library="${escapeAttr(library.id)}">${escapeHtml(library.name)}</button>`).join("")}
+        </div>
+        <div class="deck-info">
+          <img src="${escapeAttr(active.backUrl)}" alt="">
+          <div>
+            <h3>${escapeHtml(active.title || active.name)}</h3>
+            <p class="status-line">整理者：${escapeHtml(active.curator || "未知")} · ${active.cardCount} 张 · ${active.pmvCount} PMV · ${escapeHtml(active.name)}</p>
+            <p class="muted">${escapeHtml(active.description || "暂无描述")}</p>
+          </div>
+        </div>
+        <div class="pmv-card-list">
+          ${active.pmvs.map((pmv) => `
+            <article class="pmv-card">
+              <h3>pmv ${pmv.pmvId} · ${escapeHtml(pmv.name)}</h3>
+              <div class="pmv-shots">${pmv.shots.map((shot) => `<img src="${escapeAttr(shot.imageUrl)}" alt="${escapeAttr(`${pmv.name} ${shot.shot}`)}">`).join("")}</div>
+              ${pmv.author ? `<p>作者：${escapeHtml(pmv.author)}</p>` : ""}
+              ${pmv.description ? `<p>${escapeHtml(pmv.description)}</p>` : ""}
+              ${pmv.link ? `<p><a href="${escapeAttr(pmv.link)}">链接</a></p>` : ""}
+            </article>
+          `).join("")}
+        </div>
+      </section>
+    </main>
+  `;
+}
+
+function renderPmvIndex() {
+  if (!app.pmvIndex) {
+    loadPmvIndex();
+    return `<main class="page"><section class="panel"><h2>PMV id 查询</h2><p class="muted">加载中...</p></section></main>`;
+  }
+  const rows = sortRows(app.pmvIndex.rows, app.sorts.pmvIndex);
+  return `
+    <main class="page">
+      <section class="panel grid">
+        <h2>PMV id 查询</h2>
+        ${renderTable("pmvIndex", rows, [
+          ["pmvId", "id", (row) => row.pmvId],
+          ["name", "PMV 名", (row) => row.name],
+          ["author", "作者", (row) => row.author || ""],
+          ["libraryName", "卡包", (row) => row.libraryName],
         ])}
       </section>
     </main>
@@ -1028,9 +1261,58 @@ async function loadLeaderboard() {
   }
 }
 
-function renderLibraryPicker(libs, selected = null) {
+async function loadPmvIndex() {
+  if (app.pmvIndexLoading) return;
+  app.pmvIndexLoading = true;
+  try {
+    app.pmvIndex = await getJson("/api/pmv-index");
+    if (app.route.name === "pmv-index") render();
+  } catch (error) {
+    showToast(humanizeError(error.message));
+  } finally {
+    app.pmvIndexLoading = false;
+  }
+}
+
+async function beginCardViewerPreload() {
+  if (app.cardViewer.loading || app.cardViewer.payload) {
+    if (app.cardViewer.payload && app.route.name === "card-loading") setRoute("card-info");
+    return;
+  }
+  const libraryIds = app.route.libraryIds || app.cardViewer.selectedLibraryIds;
+  app.cardViewer.selectedLibraryIds = libraryIds;
+  app.cardViewer.loading = true;
+  try {
+    const query = new URLSearchParams();
+    libraryIds.forEach((id) => query.append("libraryIds", id));
+    const payload = await getJson(`/api/card-viewer?${query.toString()}`);
+    const cacheKey = `cof.cardViewer.${payload.key}`;
+    app.cardViewer.total = payload.assets.length;
+    app.cardViewer.loaded = 0;
+    if (localStorage.getItem(cacheKey) !== "1") {
+      for (const asset of payload.assets) {
+        await preloadAsset(asset);
+        app.cardViewer.loaded += 1;
+        render();
+      }
+      localStorage.setItem(cacheKey, "1");
+    } else {
+      app.cardViewer.loaded = app.cardViewer.total;
+    }
+    app.cardViewer.payload = payload;
+    app.cardViewer.key = payload.key;
+    app.cardViewer.loading = false;
+    setRoute("card-info");
+  } catch (error) {
+    app.cardViewer.loading = false;
+    app.message = humanizeError(error.message);
+    setRoute("card-select");
+  }
+}
+
+function renderLibraryPicker(libs, selected = null, copies = {}) {
   const selectedSet = new Set(selected || libs.slice(0, 1).map((lib) => lib.id));
-  const total = libs.filter((lib) => selectedSet.has(lib.id)).reduce((sum, lib) => sum + lib.cardCount, 0);
+  const total = libs.filter((lib) => selectedSet.has(lib.id)).reduce((sum, lib) => sum + lib.cardCount * copyValueForLibrary(lib, copies), 0);
   return `
     <div class="panel">
       <h3>卡牌库 <span class="pill" data-card-total>当前 ${total} 张</span></h3>
@@ -1038,7 +1320,58 @@ function renderLibraryPicker(libs, selected = null) {
         ${libs.map((lib) => `
           <label class="library-row">
             <span>${escapeHtml(lib.name)} <span class="pill">${lib.cardCount} 张 / ${lib.pmvCount} PMV</span></span>
-            <input name="libraryIds" value="${escapeAttr(lib.id)}" type="checkbox" ${selectedSet.has(lib.id) ? "checked" : ""}>
+            <span class="library-controls">
+              <input name="libraryIds" value="${escapeAttr(lib.id)}" type="checkbox" ${selectedSet.has(lib.id) ? "checked" : ""}>
+              <input class="copy-input" name="libraryCopies.${escapeAttr(lib.id)}" type="number" min="1" max="${libraryCopyLimit(lib)}" value="${copyValueForLibrary(lib, copies)}" aria-label="复制份数">
+            </span>
+          </label>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function copyValueForLibrary(lib, copies = {}) {
+  return Math.max(1, Math.min(libraryCopyLimit(lib), Number.parseInt(copies?.[lib.id], 10) || 1));
+}
+
+function libraryCopyLimit(lib) {
+  const cardCount = Math.max(1, Number.parseInt(lib?.cardCount, 10) || 1);
+  return Math.max(1, Math.floor(120 / cardCount));
+}
+
+function renderStartVoteSettings(settings = {}) {
+  const mode = settings.startVoteThresholdMode === "manual" ? "manual" : "auto";
+  const threshold = settings.startVoteThreshold || "";
+  return `
+    <div class="panel form-grid">
+      <label>投票开始阈值
+        <select name="startVoteThresholdMode">
+          <option value="auto" ${mode === "auto" ? "selected" : ""}>自动（当前人数 - 2）</option>
+          <option value="manual" ${mode === "manual" ? "selected" : ""}>手动</option>
+        </select>
+      </label>
+      <label>手动阈值
+        <input name="startVoteThreshold" type="number" min="1" max="8" value="${escapeAttr(threshold)}">
+      </label>
+    </div>
+  `;
+}
+
+function renderComputerPicker(computers) {
+  if (!computers.length) return "";
+  return `
+    <div class="panel">
+      <h3>初始人机玩家</h3>
+      <div class="computer-list">
+        ${computers.map((computer) => `
+          <label class="computer-row">
+            <span>
+              <strong>${escapeHtml(computer.name)}</strong>
+              <span class="muted">${escapeHtml(computer.description || "")}</span>
+              ${renderComputerStats(computer)}
+            </span>
+            <input name="computerIds" value="${escapeAttr(computer.id)}" type="checkbox">
           </label>
         `).join("")}
       </div>
@@ -1072,7 +1405,7 @@ async function handleClick(event) {
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action;
-  if (["home", "create", "join", "rooms", "rules", "profile", "leaderboard"].includes(action)) {
+  if (["home", "create", "join", "rooms", "rules", "profile", "leaderboard", "card-select", "pmv-index"].includes(action)) {
     setRoute(action === "home" ? "home" : action);
     return;
   }
@@ -1088,17 +1421,27 @@ async function handleClick(event) {
   if (action === "play-card") return playCard();
   if (action === "ring-bell") return ringBell();
   if (action === "continue-game") return continueGame();
+  if (action === "start-vote") return startVote();
+  if (action === "cancel-start-vote") return cancelStartVote();
+  if (action === "add-computer") return addComputer(button.dataset.computer);
+  if (action === "remove-computer") return removeComputer(button.dataset.computer);
+  if (action === "card-tab") {
+    app.cardViewer.activeLibraryId = button.dataset.library;
+    render();
+    return;
+  }
   if (action === "sort") return sortBy(button.dataset.sort, button.dataset.key);
 }
 
 function handleChange(event) {
-  if (event.target.name !== "libraryIds") return;
+  if (event.target.name !== "libraryIds" && !event.target.name?.startsWith("libraryCopies.")) return;
   const form = event.target.closest("form");
   if (!form) return;
-  const selected = new Set(new FormData(form).getAll("libraryIds"));
+  const data = new FormData(form);
+  const selected = new Set(data.getAll("libraryIds"));
   const total = app.snapshot.cardLibraries
     .filter((library) => selected.has(library.id))
-    .reduce((sum, library) => sum + library.cardCount, 0);
+    .reduce((sum, library) => sum + library.cardCount * (Number.parseInt(data.get(`libraryCopies.${library.id}`), 10) || 1), 0);
   const badge = form.querySelector("[data-card-total]");
   if (badge) badge.textContent = `当前 ${total} 张`;
 }
@@ -1115,7 +1458,11 @@ async function handleSubmit(event) {
     return;
   }
   if (form.id === "create-room-form") {
-    const room = await postJson("/api/rooms", authPayload({ settings: settingsFromForm(form, true) }));
+    const data = new FormData(form);
+    const room = await postJson("/api/rooms", authPayload({
+      settings: settingsFromForm(form, true),
+      computerIds: data.getAll("computerIds"),
+    }));
     await refresh();
     setRoute("waiting", { roomId: room.room.id });
   }
@@ -1135,6 +1482,18 @@ async function handleSubmit(event) {
     await postJson(`/api/rooms/${encodeURIComponent(room.id)}/transfer-host`, authPayload({ newHostId }));
     await refresh();
     setRoute("waiting", { roomId: room.id });
+  }
+  if (form.id === "chat-form") {
+    await sendChat(form);
+  }
+  if (form.id === "card-view-form") {
+    const libraryIds = new FormData(form).getAll("libraryIds");
+    if (!libraryIds.length) {
+      showToast("请至少选择一个卡组。");
+      return;
+    }
+    app.cardViewer = { loading: false, payload: null, key: "", selectedLibraryIds: libraryIds, loaded: 0, total: 0 };
+    setRoute("card-loading", { libraryIds });
   }
 }
 
@@ -1199,6 +1558,9 @@ function settingsFromForm(form, includeFixed) {
   const libraryIds = data.getAll("libraryIds");
   const settings = {
     libraryIds,
+    libraryCopies: Object.fromEntries(libraryIds.map((id) => [id, Number(data.get(`libraryCopies.${id}`)) || 1])),
+    startVoteThresholdMode: data.get("startVoteThresholdMode") || "auto",
+    startVoteThreshold: Number(data.get("startVoteThreshold")) || null,
     allowEmptyBell: data.has("allowEmptyBell"),
     randomBacks: data.has("randomBacks"),
     conflictResolution: data.has("conflictResolution"),
@@ -1231,6 +1593,51 @@ async function startGame() {
     await postJson(`/api/rooms/${encodeURIComponent(room.id)}/start`, authPayload());
     await refresh();
     setRoute("loading");
+  } catch (error) {
+    app.message = error.message;
+    render();
+  }
+}
+
+async function startVote() {
+  const room = currentRoom();
+  if (!room) return;
+  await safeRoomAction(`/api/rooms/${encodeURIComponent(room.id)}/start-vote`);
+}
+
+async function cancelStartVote() {
+  const room = currentRoom();
+  if (!room) return;
+  await safeRoomAction(`/api/rooms/${encodeURIComponent(room.id)}/cancel-start-vote`);
+}
+
+async function addComputer(computerId) {
+  const room = currentRoom();
+  if (!room || !computerId) return;
+  await safeRoomAction(`/api/rooms/${encodeURIComponent(room.id)}/add-computer`, { computerId });
+}
+
+async function removeComputer(computerId) {
+  const room = currentRoom();
+  if (!room || !computerId) return;
+  await safeRoomAction(`/api/rooms/${encodeURIComponent(room.id)}/remove-computer`, { computerId });
+}
+
+async function sendChat(form) {
+  const room = currentRoom();
+  if (!room) return;
+  const input = form.querySelector("input[name='message']");
+  const message = input?.value || "";
+  if (!message.trim()) return;
+  await safeRoomAction(`/api/rooms/${encodeURIComponent(room.id)}/chat`, { message });
+  if (input) input.value = "";
+}
+
+async function safeRoomAction(path, extra = {}) {
+  try {
+    await postJson(path, authPayload(extra));
+    await refresh();
+    render();
   } catch (error) {
     app.message = error.message;
     render();
@@ -1400,6 +1807,7 @@ function scheduleCountdownRender() {
     app.countdownTimer = null;
   }
   const game = app.snapshot?.currentGame;
+  const room = app.snapshot?.currentRoom;
   const now = Date.now();
   const animationUntil = game?.lastAnimation ? game.lastAnimation.startedAt + game.lastAnimation.durationMs : 0;
   if (game?.status === "finished" && game.resultInfo?.counts?.length) {
@@ -1430,6 +1838,13 @@ function scheduleCountdownRender() {
     return;
   }
   if (game?.status === "finished" && game.continueReturnAt && now < game.continueReturnAt) {
+    app.countdownTimer = window.setTimeout(() => {
+      app.countdownTimer = null;
+      render();
+    }, 1000);
+    return;
+  }
+  if (room?.status === "waiting" && room.startAt && now < room.startAt) {
     app.countdownTimer = window.setTimeout(() => {
       app.countdownTimer = null;
       render();

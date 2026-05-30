@@ -195,6 +195,83 @@ test("API smoke: auth, assets, room flow, loading, and play", async () => {
   }
 });
 
+test("API supports computers, start votes, chat, card viewer, PMV index, and computer stats", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryId = bootstrap.cardLibraries[0].id;
+    const computers = await request(base, "GET", "/api/computer-players");
+    assert.equal(computers.players.length, 5);
+
+    const p1 = await register(base, "Human 1");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: {
+        minPlayers: 2,
+        maxPlayers: 3,
+        isPublic: true,
+        libraryIds: [libraryId],
+        libraryCopies: { [libraryId]: 2 },
+      },
+    }));
+    assert.equal(created.room.settings.minPlayers, 2);
+    assert.equal(created.room.settings.libraryCopies[libraryId], 2);
+
+    const withComputer = await request(base, "POST", `/api/rooms/${created.room.id}/add-computer`, payload(p1, {
+      computerId: computers.players[0].id,
+    }));
+    const computerPlayer = withComputer.room.players.find((player) => player.isComputer);
+    assert.ok(computerPlayer);
+    assert.equal(computerPlayer.computerId, computers.players[0].id);
+    assert.ok(withComputer.room.startAt, "computer auto-vote should be enough for a two-player room");
+
+    const chat = await request(base, "POST", `/api/rooms/${created.room.id}/chat`, payload(p1, {
+      message: "<script>alert(1)</script>\nThis message is intentionally longer than forty characters.",
+    }));
+    assert.equal(chat.room.chatMessages.length, 1);
+    assert.equal(chat.room.chatMessages[0].message.includes("\n"), false);
+    assert.ok([...chat.room.chatMessages[0].message].length <= 40);
+
+    const viewer = await request(base, "GET", `/api/card-viewer?libraryIds=${encodeURIComponent(libraryId)}`);
+    assert.equal(viewer.libraries[0].id, libraryId);
+    assert.ok(viewer.libraries[0].pmvs[0].shots.length > 0);
+    assert.ok(viewer.assets.some((asset) => asset.startsWith("/cards/")));
+
+    const pmvIndex = await request(base, "GET", "/api/pmv-index");
+    assert.ok(pmvIndex.rows.some((row) => row.libraryId === libraryId && row.pmvId));
+
+    const room = state.rooms.get(created.room.id);
+    room.startAt = Date.now() - 1;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(room.status, "loading");
+
+    const assets = await request(base, "GET", `/api/rooms/${room.id}/assets?token=${encodeURIComponent(p1.token)}`);
+    const loaded = await loadingProgress(base, room.id, p1, assets.assets.length, assets.assets.length, true);
+    assert.equal(loaded.game.status, "playing");
+
+    const game = state.games.get(loaded.game.id);
+    const humanIndex = game.players.findIndex((player) => player.clientId === p1.clientId);
+    const computerIndex = game.players.findIndex((player) => player.isComputer);
+    game.players[computerIndex].eliminated = true;
+    game.eliminatedOrder = [game.players[computerIndex].clientId];
+    game.turnIndex = humanIndex;
+    game.turnAvailableAt = Date.now() - 1;
+    game.turnDeadlineAt = Date.now() + 1000;
+    const finished = await request(base, "POST", `/api/games/${game.id}/play-card`, payload(p1));
+    assert.equal(finished.game.status, "finished");
+
+    const profile = await request(base, "GET", `/api/profile/${p1.clientId}?token=${encodeURIComponent(p1.token)}`);
+    assert.equal(profile.profile.defeatedComputers[computers.players[0].id], 1);
+    const leaderboard = await request(base, "GET", "/api/leaderboard");
+    assert.ok(leaderboard.players.some((player) => player.isComputer && player.computerId === computers.players[0].id));
+  } finally {
+    await close(server);
+  }
+});
+
 test("loading progress is monotonic and finished rooms can be reused or disbanded", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
   const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
@@ -517,6 +594,196 @@ test("automatic play emits the same play-card audio event as manual play", async
     assert.match(event, new RegExp(`"gameId":"${started.game.id}"`));
   } finally {
     if (stream) await stream.close();
+    await close(server);
+  }
+});
+
+test("waiting room disconnected players are kicked after two minutes", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const p1 = await register(base, "Kick Host");
+    const p2 = await register(base, "Kick Guest");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 2, maxPlayers: 8, isPublic: true, libraryIds },
+    }));
+    const roomId = created.room.id;
+    await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p2));
+
+    const guest = state.players.get(p2.clientId);
+    guest.connected = false;
+    guest.lastSeenAt = Date.now() - 121000;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const room = state.rooms.get(roomId);
+    assert.equal(room.players.includes(p2.clientId), false);
+    assert.equal(state.players.get(p2.clientId).currentRoomId, null);
+    const snapshot = await request(base, "GET", `/api/bootstrap?token=${encodeURIComponent(p1.token)}`);
+    assert.equal(snapshot.currentRoom.players.some((player) => player.clientId === p2.clientId), false);
+  } finally {
+    await close(server);
+  }
+});
+
+test("short server tick does not broadcast state events while waiting room state is unchanged", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+  let stream = null;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const p1 = await register(base, "Quiet Host");
+    await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 2, maxPlayers: 8, isPublic: true, libraryIds },
+    }));
+
+    stream = await openEvents(base, p1);
+    await stream.nextEvent();
+    await stream.nextEvent();
+    const timedOut = await Promise.race([
+      stream.nextEvent(650).then(() => false).catch(() => true),
+      new Promise((resolve) => setTimeout(() => resolve(true), 700)),
+    ]);
+
+    assert.equal(timedOut, true);
+  } finally {
+    if (stream) await stream.close();
+    await close(server);
+  }
+});
+
+test("aggressive computer player acts through the server FSM", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+  let stream = null;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const computers = await request(base, "GET", "/api/computer-players");
+    const p1 = await register(base, "AI Host");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 2, maxPlayers: 3, isPublic: true, libraryIds },
+    }));
+    await request(base, "POST", `/api/rooms/${created.room.id}/add-computer`, payload(p1, {
+      computerId: computers.players[0].id,
+    }));
+    const computerId = state.rooms.get(created.room.id).players.find((clientId) => state.players.get(clientId)?.isComputer);
+    state.players.get(computerId).profile = {
+      ...state.players.get(computerId).profile,
+      playDelayMeanSeconds: 0,
+      playDelayStdSeconds: 0,
+      reactionMeanSeconds: 0,
+      reactionStdSeconds: 0,
+      matchDetectionProbability: 1,
+      falseRingProbability: 0,
+    };
+
+    const started = await request(base, "POST", `/api/rooms/${created.room.id}/start`, payload(p1));
+    const assets = await request(base, "GET", `/api/rooms/${created.room.id}/assets?token=${encodeURIComponent(p1.token)}`);
+    await loadingProgress(base, created.room.id, p1, assets.assets.length, assets.assets.length, true);
+
+    const game = state.games.get(started.game.id);
+    game.turnIndex = game.players.findIndex((player) => player.clientId === computerId);
+    game.turnAvailableAt = Date.now() - 1;
+    game.turnDeadlineAt = Date.now() + 6000;
+    stream = await openEvents(base, p1);
+    await stream.nextEvent();
+    await stream.nextEvent();
+
+    const event = await waitForEvent(stream, "audio", 3000);
+    assert.match(event, /"type":"play-card"/);
+    assert.ok(game.players.find((player) => player.clientId === computerId).stats.plays >= 1);
+  } finally {
+    if (stream) await stream.close();
+    await close(server);
+  }
+});
+
+test("aggressive computer-only game keeps making progress", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const computers = await request(base, "GET", "/api/computer-players");
+    const p1 = await register(base, "AI Liveness Host");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 2, maxPlayers: 4, isPublic: true, libraryIds },
+    }));
+    for (const computer of computers.players.slice(0, 3)) {
+      await request(base, "POST", `/api/rooms/${created.room.id}/add-computer`, payload(p1, {
+        computerId: computer.id,
+      }));
+    }
+
+    const computerIds = state.rooms.get(created.room.id).players.filter((clientId) => state.players.get(clientId)?.isComputer);
+    for (const computerId of computerIds) {
+      state.players.get(computerId).profile = {
+        ...state.players.get(computerId).profile,
+        playDelayMeanSeconds: 0,
+        playDelayStdSeconds: 0,
+        reactionMeanSeconds: 0,
+        reactionStdSeconds: 0,
+        matchDetectionProbability: 1,
+        falseRingProbability: 1,
+      };
+    }
+
+    const started = await request(base, "POST", `/api/rooms/${created.room.id}/start`, payload(p1));
+    const assets = await request(base, "GET", `/api/rooms/${created.room.id}/assets?token=${encodeURIComponent(p1.token)}`);
+    await loadingProgress(base, created.room.id, p1, assets.assets.length, assets.assets.length, true);
+
+    const game = state.games.get(started.game.id);
+    const host = game.players.find((player) => player.clientId === p1.clientId);
+    host.eliminated = true;
+    host.rank = game.players.length;
+    game.turnIndex = game.players.findIndex((player) => computerIds.includes(player.clientId));
+    game.turnAvailableAt = Date.now() - 1;
+    game.turnDeadlineAt = Date.now() + 6000;
+
+    const signature = () => [
+      game.status,
+      game.playCount,
+      game.successBellCount,
+      game.failBellCount,
+      game.lockedUntil,
+      game.turnIndex,
+      game.players.filter((player) => !player.eliminated && !player.exited).length,
+    ].join(":");
+    const startedAt = Date.now();
+    let lastSignature = signature();
+    let lastChangedAt = Date.now();
+    let maxQuietMs = 0;
+    while (Date.now() - startedAt < 10000 && game.status === "playing") {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const nextSignature = signature();
+      if (nextSignature !== lastSignature) {
+        maxQuietMs = Math.max(maxQuietMs, Date.now() - lastChangedAt);
+        lastSignature = nextSignature;
+        lastChangedAt = Date.now();
+      }
+      assert.ok(Date.now() - lastChangedAt < 7500, `computer FSM appears stuck for ${Date.now() - lastChangedAt}ms`);
+    }
+    maxQuietMs = Math.max(maxQuietMs, Date.now() - lastChangedAt);
+
+    assert.ok(game.playCount >= 2, `expected repeated computer plays, got ${game.playCount}`);
+    assert.ok(game.successBellCount + game.failBellCount >= 1, "expected at least one computer bell attempt");
+    assert.ok(maxQuietMs < 7500, `expected no long quiet period, got ${maxQuietMs}ms`);
+  } finally {
     await close(server);
   }
 });
