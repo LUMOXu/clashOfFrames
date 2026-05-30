@@ -84,6 +84,12 @@ function createGame({ room, players, cards, now = Date.now(), rng = Math.random 
     eliminated: false,
     exited: false,
     ready: false,
+    loadingLoaded: 0,
+    loadingTotal: 0,
+    loadingProgress: 0,
+    loadingCached: false,
+    loadingStartedAt: null,
+    loadingFinishedAt: null,
     drawPile: hands[index],
     displayPile: [],
     eliminatedAt: null,
@@ -134,16 +140,62 @@ function createGame({ room, players, cards, now = Date.now(), rng = Math.random 
   return game;
 }
 
+function publicBackCard(card) {
+  return {
+    id: card.id,
+    libraryId: card.libraryId,
+    backUrl: card.backUrl,
+  };
+}
+
+function publicFaceCard(card) {
+  return {
+    id: card.id,
+    libraryId: card.libraryId,
+    pmvId: card.pmvId,
+    pmvName: card.pmvName,
+    shot: card.shot,
+    imageUrl: card.imageUrl,
+    backUrl: card.backUrl,
+    playedSeq: card.playedSeq || 0,
+    playedBy: card.playedBy || null,
+  };
+}
+
+function publicAnimation(animation) {
+  if (!animation) return null;
+  if (animation.type === "success") {
+    return {
+      ...clone(animation),
+      piles: animation.piles.map((pile) => ({
+        ...pile,
+        cards: pile.cards.map(publicFaceCard),
+      })),
+    };
+  }
+  if (animation.type === "fail") {
+    return {
+      ...clone(animation),
+      transfers: animation.transfers.map((transfer) => ({
+        ...transfer,
+        card: publicBackCard(transfer.card),
+      })),
+    };
+  }
+  return clone(animation);
+}
+
 function publicGame(game) {
   return {
     ...clone(game),
+    logs: game.logs.slice(0, 80).map(clone),
+    lastAnimation: publicAnimation(game.lastAnimation),
     players: game.players.map((player) => ({
       ...clone(player),
-      drawPile: player.drawPile.map((card) => ({
-        id: card.id,
-        libraryId: card.libraryId,
-        backUrl: card.backUrl,
-      })),
+      drawCount: player.drawPile.length,
+      displayCount: player.displayPile.length,
+      drawPile: player.drawPile.slice(0, 8).map(publicBackCard),
+      displayPile: player.displayPile.map(publicFaceCard),
     })),
   };
 }

@@ -301,6 +301,67 @@ th button {
   transition: width .2s ease;
 }
 
+.loading-list {
+  display: grid;
+  gap: 12px;
+}
+
+.loading-player-row {
+  background: rgba(8, 11, 8, .42);
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.loading-player-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.room-row {
+  align-items: flex-start;
+}
+
+.room-meta {
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 7px 12px;
+  margin-top: 8px;
+}
+
+.rules-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.rules-grid section {
+  border-top: 1px solid rgba(255, 255, 255, .1);
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.rules-grid h3,
+.rules-grid p {
+  margin: 0;
+}
+
+.rules-grid p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.loading-detail {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .game-shell {
   height: calc(100vh - 73px);
   max-width: none;
@@ -430,10 +491,13 @@ th button {
 }
 
 .turn-banner {
-  margin-top: 2px;
+  left: 50%;
+  margin-top: 0;
   min-width: 200px;
-  position: relative;
+  position: absolute;
   text-align: center;
+  top: calc(100% + 4px);
+  transform: translateX(-50%);
   z-index: 8;
 }
 

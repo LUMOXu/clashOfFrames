@@ -52,6 +52,16 @@ function payload(auth, extra = {}) {
   return { token: auth.token, clientId: auth.clientId, ...extra };
 }
 
+async function loadingProgress(base, roomId, auth, loaded, total, done = false) {
+  return request(base, "POST", `/api/rooms/${roomId}/loading-progress`, payload(auth, {
+    loaded,
+    total,
+    cached: loaded === total,
+    manifestKey: "test-manifest",
+    done,
+  }));
+}
+
 test("API smoke: auth, assets, room flow, loading, and play", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
   const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
@@ -115,15 +125,23 @@ test("API smoke: auth, assets, room flow, loading, and play", async () => {
     assert.ok(assets.assets.includes("/assets/bell.png"));
     assert.ok(assets.assets.some((asset) => asset.startsWith("/cards/")));
 
-    await request(base, "POST", `/api/rooms/${roomId}/loading-ready`, payload(p1));
-    await request(base, "POST", `/api/rooms/${roomId}/loading-ready`, payload(p2));
-    const loaded = await request(base, "POST", `/api/rooms/${roomId}/loading-ready`, payload(p3));
+    const gameState = state.games.get(started.game.id);
+    gameState.players.find((player) => player.clientId === p3.clientId).connected = false;
+    const partial = await loadingProgress(base, roomId, p1, assets.assets.length, assets.assets.length, true);
+    assert.equal(partial.game.status, "loading");
+    assert.equal(partial.room.players.find((player) => player.clientId === p1.clientId).loadingProgress, 100);
+    await loadingProgress(base, roomId, p2, Math.floor(assets.assets.length / 2), assets.assets.length, false);
+    await loadingProgress(base, roomId, p2, assets.assets.length, assets.assets.length, true);
+    const loaded = await loadingProgress(base, roomId, p3, assets.assets.length, assets.assets.length, true);
     assert.equal(loaded.game.status, "playing");
+    assert.ok(loaded.game.players[0].drawCount >= loaded.game.players[0].drawPile.length);
+    assert.equal("pmvId" in loaded.game.players[0].drawPile[0], false);
 
     const authById = new Map([p1, p2, p3].map((auth) => [auth.clientId, auth]));
     const current = loaded.game.players[loaded.game.turnIndex].clientId;
     const played = await request(base, "POST", `/api/games/${loaded.game.id}/play-card`, payload(authById.get(current)));
     assert.equal(played.game.playCount, 1);
+    assert.ok(played.game.players.some((player) => player.displayPile.some((card) => card.imageUrl)));
   } finally {
     await close(server);
   }

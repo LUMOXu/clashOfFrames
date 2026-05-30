@@ -239,7 +239,23 @@ async function handleApi(req, res, url, pathname, context) {
       const game = state.games.get(room.gameId);
       if (!game || game.status !== "loading") throw new Error("当前房间不在加载阶段。");
       const player = game.players.find((item) => item.clientId === clientId);
-      if (player) player.ready = true;
+      if (player) updateLoadingProgress(player, {
+        loaded: player.loadingTotal || 1,
+        total: player.loadingTotal || 1,
+        done: true,
+      });
+      advanceLoading(room, game, state);
+      finalizeGameIfNeeded(game, state, dataFile);
+      broadcast(state);
+      return sendJson(res, 200, { room: roomSummary(room, state), game: publicGame(game) });
+    }
+
+    if (action === "loading-progress") {
+      const game = state.games.get(room.gameId);
+      if (!game || game.status !== "loading") throw new Error("当前房间不在加载阶段。");
+      const player = game.players.find((item) => item.clientId === clientId);
+      if (!player) throw httpError(403, "你不在这局游戏中。");
+      updateLoadingProgress(player, body);
       advanceLoading(room, game, state);
       finalizeGameIfNeeded(game, state, dataFile);
       broadcast(state);
@@ -400,17 +416,35 @@ function startRoomGame(room, state, cardLibraries) {
 }
 
 function advanceLoading(room, game, state) {
-  const connected = game.players.filter((player) => player.connected !== false && !player.exited);
-  if (connected.length < game.settings.minPlayers) {
+  const expectedIds = new Set(room.players);
+  const expectedPlayers = game.players.filter((player) => expectedIds.has(player.clientId) && !player.exited);
+  if (expectedPlayers.length < game.settings.minPlayers) {
     room.status = "waiting";
     room.gameId = null;
     game.status = "aborted";
     return;
   }
-  const allConnectedReady = connected.every((player) => player.ready);
-  if (allConnectedReady) {
+  const allExpectedReady = expectedPlayers.every((player) => player.ready);
+  if (allExpectedReady) {
     room.status = "playing";
     startPlaying(game, Date.now());
+  }
+}
+
+function updateLoadingProgress(player, input = {}) {
+  const total = Math.max(0, Number.parseInt(input.total, 10) || player.loadingTotal || 0);
+  const loaded = Math.max(0, Math.min(total || Number.MAX_SAFE_INTEGER, Number.parseInt(input.loaded, 10) || 0));
+  player.loadingTotal = total;
+  player.loadingLoaded = loaded;
+  player.loadingProgress = total > 0 ? Math.round((loaded / total) * 100) : 0;
+  player.loadingCached = Boolean(input.cached);
+  player.loadingManifestKey = typeof input.manifestKey === "string" ? input.manifestKey.slice(0, 80) : player.loadingManifestKey || "";
+  player.loadingStartedAt = player.loadingStartedAt || Date.now();
+  if (input.done || (total > 0 && loaded >= total)) {
+    player.loadingLoaded = total || loaded;
+    player.loadingProgress = 100;
+    player.ready = true;
+    player.loadingFinishedAt = Date.now();
   }
 }
 
@@ -823,10 +857,13 @@ function roomSummary(room, state) {
   return {
     id: room.id,
     hostId: room.hostId,
+    hostName: state.players.get(room.hostId)?.username || "房主",
     status: room.status,
     gameId: room.gameId,
     settings: room.settings,
     createdAt: room.createdAt,
+    playerCount: room.players.length,
+    spectatorCount: room.spectators.length,
     players: room.players.map((clientId) => {
       const player = state.players.get(clientId);
       const gamePlayer = game?.players.find((item) => item.clientId === clientId);
@@ -836,6 +873,10 @@ function roomSummary(room, state) {
         connected: gamePlayer ? gamePlayer.connected : player?.connected !== false,
         eliminated: gamePlayer?.eliminated || false,
         ready: gamePlayer?.ready || false,
+        loadingLoaded: gamePlayer?.loadingLoaded || 0,
+        loadingTotal: gamePlayer?.loadingTotal || 0,
+        loadingProgress: gamePlayer?.loadingProgress || 0,
+        loadingCached: gamePlayer?.loadingCached || false,
       };
     }),
     spectators: room.spectators.map((clientId) => {
@@ -859,7 +900,7 @@ function publicLibraries(cardLibraries) {
 function assetManifestForRoom(room, cardLibraries) {
   const selectedIds = new Set(room.settings.libraryIds);
   const libraries = cardLibraries.filter((library) => selectedIds.has(library.id));
-  const assets = new Set(["/assets/bell.png", "/assets/logo.png"]);
+  const assets = new Set(["/assets/bell.png", "/assets/logo.png", "/ding.wav", "/sendcard.mp3"]);
   libraries.forEach((library) => {
     assets.add(library.backUrl);
     library.cards.forEach((card) => assets.add(card.imageUrl));
@@ -952,6 +993,8 @@ function serveStatic(req, res, pathname, context) {
     filePath = path.join(rootDir, "logo.png");
   } else if (pathname === "/ding.wav") {
     filePath = path.join(rootDir, "ding.wav");
+  } else if (pathname === "/sendcard.mp3") {
+    filePath = path.join(rootDir, "sendcard.mp3");
   } else if (pathname.startsWith("/cards/")) {
     filePath = path.join(rootDir, pathname.slice(1));
   } else {
@@ -985,7 +1028,7 @@ function serveStatic(req, res, pathname, context) {
 }
 
 function assetCacheControl(pathname) {
-  if (pathname.startsWith("/cards/") || pathname === "/assets/bell.png" || pathname === "/bell.png" || pathname === "/assets/logo.png" || pathname === "/logo.png") {
+  if (pathname.startsWith("/cards/") || pathname === "/assets/bell.png" || pathname === "/bell.png" || pathname === "/assets/logo.png" || pathname === "/logo.png" || pathname === "/ding.wav" || pathname === "/sendcard.mp3") {
     return "public, max-age=31536000, immutable";
   }
   return "no-cache";
@@ -1003,6 +1046,7 @@ function mimeType(filePath) {
     ".jpeg": "image/jpeg",
     ".svg": "image/svg+xml",
     ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
   }[ext] || "application/octet-stream";
 }
 

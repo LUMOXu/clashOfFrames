@@ -7,7 +7,7 @@ const app = {
   route: { name: "home" },
   message: "",
   toast: null,
-  loading: { gameId: null, loaded: 0, total: 0, done: false, running: false },
+  loading: { gameId: null, loaded: 0, total: 0, done: false, running: false, cached: false, manifestKey: "", lastReportAt: 0 },
   sorts: {
     profile: { key: "at", dir: "desc" },
     players: { key: "wins", dir: "desc" },
@@ -258,16 +258,41 @@ function renderRooms() {
 function renderRoomRow(room) {
   const names = room.players.map((player) => player.username).join("、") || "无";
   const full = room.players.length >= room.settings.maxPlayers && room.status === "waiting";
+  const libraries = libraryNamesForRoom(room).join("、") || "未选择";
+  const options = settingTags(room.settings).join("、") || "默认规则";
   return `
     <div class="card room-row">
       <div>
         <strong>#${escapeHtml(room.id)}</strong>
         <span class="pill">${statusText(room.status)}</span>
-        <p class="muted">${escapeHtml(names)}</p>
+        <div class="room-meta">
+          <span>房主：${escapeHtml(room.hostName || room.players.find((player) => player.clientId === room.hostId)?.username || "房主")}</span>
+          <span>${room.players.length}/${room.settings.maxPlayers} 人，至少 ${room.settings.minPlayers} 人开局</span>
+          <span>卡库：${escapeHtml(libraries)}</span>
+          <span>选项：${escapeHtml(options)}</span>
+          <span>玩家：${escapeHtml(names)}</span>
+        </div>
       </div>
       <button data-action="join-public-room" data-room="${escapeAttr(room.id)}" ${full ? "disabled" : ""}>加入</button>
     </div>
   `;
+}
+
+function libraryNamesForRoom(room) {
+  const selected = new Set(room.settings.libraryIds || []);
+  return app.snapshot.cardLibraries
+    .filter((library) => selected.has(library.id))
+    .map((library) => `${library.name}(${library.cardCount})`);
+}
+
+function settingTags(settings = {}) {
+  const tags = [];
+  if (settings.allowEmptyBell) tags.push("空牌可抢铃");
+  if (settings.randomBacks) tags.push("随机卡背");
+  if (settings.conflictResolution) tags.push("冲突判定");
+  if (settings.disconnectProtection) tags.push("断线保护");
+  if (settings.isPublic) tags.push("公开");
+  return tags;
 }
 
 function renderRules() {
@@ -275,11 +300,40 @@ function renderRules() {
     <main class="page">
       <section class="panel">
         <h2>游戏规则</h2>
-        <div class="grid">
-          <p>所有玩家获得等量背面朝上的卡牌，轮流翻开牌放到自己的展示区最上方。</p>
-          <p>任意未淘汰玩家发现桌面顶部展示牌中有两张来自同一 PMV 时，可以立刻按铃。</p>
-          <p>按铃正确时，按铃者获得所有玩家已出展示牌并洗入自己牌堆底部；按铃错误时，需要按顺时针顺序给其他玩家各一张牌。</p>
-          <p>默认牌堆耗尽即淘汰，最后未被淘汰的玩家获胜。</p>
+        <div class="rules-grid">
+          <section>
+            <h3>基本流程</h3>
+            <p>每名玩家获得等量未出牌，剩余不能平分的牌会被弃置。轮到某名玩家时，点击自己的未出牌堆出牌；牌会进入该玩家的已出牌堆。</p>
+            <p>桌面只按每名玩家已出牌堆最上方的牌判断匹配。如果至少两名玩家的顶部牌来自同一个 PMV，任意未淘汰玩家都可以按铃。</p>
+            <p>默认出牌有 1 秒最小间隔；轮到玩家后 8 秒未出牌会自动出牌。开启断线保护时，掉线玩家轮到自己后 2 秒自动出牌。</p>
+          </section>
+          <section>
+            <h3>按铃结算</h3>
+            <p>按铃正确时，会先高亮匹配的牌，再把所有玩家的已出牌堆收给按铃者，并加入其未出牌堆底部。</p>
+            <p>按铃错误时，按铃者从自己的未出牌堆顶部开始，按顺时针顺序给其他未淘汰玩家各一张牌。牌不足时能给几张就给几张。</p>
+            <p>结算动画播放期间不能出牌或再次按铃。结算完成后不会立刻自动出牌，需要当前玩家手动继续。</p>
+          </section>
+          <section>
+            <h3>淘汰与胜利</h3>
+            <p>默认规则下，玩家未出牌堆耗尽就会被淘汰；已出牌堆仍留在桌面上，并继续参与之后的匹配判断。</p>
+            <p>只剩一名未淘汰玩家时游戏结束。结算页显示胜者、出牌数、按铃统计和继续人数；超过半数未掉线且未退出的玩家继续后，会倒计时返回等待区。</p>
+          </section>
+          <section>
+            <h3>房间选项</h3>
+            <p>最少/最多人数决定开局门槛和房间容量。公开房间会显示在房间列表，非公开房间需要输入房间 ID 加入。</p>
+            <p>卡牌库决定本局会加载和发放哪些牌；加载页会预加载所选牌组，同一牌组再次进入时浏览器会优先复用缓存。</p>
+            <p>“空牌可抢铃”允许没有未出牌的玩家继续按铃，但双人局中只剩两人且有人空牌时会直接淘汰空牌玩家。“随机卡背”会混用卡背。“冲突判定”会在出牌与按铃接近同时发生时兼看按铃前一刻的桌面。“断线保护”会保留掉线玩家，并用更短的自动出牌时间维持对局。</p>
+          </section>
+          <section>
+            <h3>主菜单</h3>
+            <p>创建房间会新建一个你担任房主的房间；加入房间用于输入房间 ID；查看房间列出公开房间和基本设置；个人信息和排行榜会显示本机服务器保存的战绩。</p>
+            <p>如果你已经在房间里，主菜单会出现返回当前房间和退出房间。一个账号同一时间只能在一个房间中。</p>
+          </section>
+          <section>
+            <h3>对局界面</h3>
+            <p>自己的玩家位固定在下方视角。高亮的未出牌堆表示当前轮到该玩家；如果轮到你，点击未出牌堆即可出牌。中央铃铛用于抢铃。</p>
+            <p>左上角显示正确/错误按铃提示和观战状态。下方日志记录出牌、按铃、淘汰和结算信息。</p>
+          </section>
         </div>
         <div class="actions"><button data-action="home">返回</button></div>
       </section>
@@ -360,19 +414,53 @@ function renderLoading() {
   const room = currentRoom();
   const game = app.snapshot.currentGame;
   if (!room || !game) return missingRoom();
-  const percent = app.loading.total ? Math.round(app.loading.loaded / app.loading.total * 100) : 0;
-  const cacheText = app.loading.cached ? "，浏览器缓存可复用" : "";
+  const rows = loadingRows(room, game);
+  const allReady = rows.length > 0 && rows.every((row) => row.ready);
   return `
     <main class="page narrow">
       <section class="panel">
         <h2>游戏加载</h2>
-        <div class="loading-bar"><div class="loading-fill" style="width:${percent}%"></div></div>
-        <p class="status-line">${app.loading.loaded}/${app.loading.total || 0} 个资源，${percent}%${cacheText}</p>
-        <div class="grid">
-          ${room.players.map((player) => `<div class="player-row"><span>${escapeHtml(player.username)}</span><span class="pill ${player.ready ? "ok" : ""}">${player.ready ? "已完成" : "加载中"}</span></div>`).join("")}
+        <p class="status-line">${allReady ? "全部玩家加载完成，正在同步进入对局。" : "等待所有玩家完成所选牌组资源加载。"}</p>
+        <div class="loading-list">
+          ${rows.map(renderLoadingRow).join("")}
         </div>
       </section>
     </main>
+  `;
+}
+
+function loadingRows(room, game) {
+  return room.players.map((roomPlayer) => {
+    const gamePlayer = game.players.find((player) => player.clientId === roomPlayer.clientId) || {};
+    const isSelf = roomPlayer.clientId === app.clientId;
+    const localTotal = isSelf ? app.loading.total : 0;
+    const localLoaded = isSelf ? app.loading.loaded : 0;
+    const total = Math.max(gamePlayer.loadingTotal || roomPlayer.loadingTotal || 0, localTotal);
+    const loaded = Math.max(gamePlayer.loadingLoaded || roomPlayer.loadingLoaded || 0, localLoaded);
+    const progress = total > 0 ? Math.min(100, Math.round(loaded / total * 100)) : (gamePlayer.loadingProgress || roomPlayer.loadingProgress || 0);
+    return {
+      ...roomPlayer,
+      loaded,
+      total,
+      progress,
+      cached: Boolean(gamePlayer.loadingCached || roomPlayer.loadingCached || (isSelf && app.loading.cached)),
+      ready: Boolean(gamePlayer.ready || roomPlayer.ready),
+    };
+  });
+}
+
+function renderLoadingRow(player) {
+  const detail = player.total ? `${player.loaded}/${player.total} 个资源` : "等待开始";
+  const cache = player.cached ? "缓存" : "下载";
+  return `
+    <div class="loading-player-row">
+      <div class="loading-player-head">
+        <span>${escapeHtml(player.username)}</span>
+        <span class="pill ${player.ready ? "ok" : ""}">${player.ready ? "已完成" : `${player.progress}%`}</span>
+      </div>
+      <div class="loading-bar"><div class="loading-fill" style="width:${player.progress}%"></div></div>
+      <div class="loading-detail">${escapeHtml(detail)} · ${escapeHtml(cache)} ${player.connected ? "" : "· 掉线"}</div>
+    </div>
   `;
 }
 
@@ -384,7 +472,7 @@ function renderGame() {
   const spectator = !self;
   const current = game.players[game.turnIndex];
   const locked = game.lockedUntil > Date.now();
-  const canPlay = self && game.status === "playing" && current?.clientId === app.clientId && !self.eliminated && self.drawPile.length > 0 && !locked;
+  const canPlay = self && game.status === "playing" && current?.clientId === app.clientId && !self.eliminated && drawCount(self) > 0 && !locked;
   const canRing = self && game.status === "playing" && !self.eliminated && !locked;
   return `
     <main class="game-shell">
@@ -437,22 +525,43 @@ function renderStations(game, current, canPlay) {
   return playerLayouts(game.players).map(({ player, x, y }) => {
     const own = player.clientId === app.clientId;
     const isCurrent = current?.clientId === player.clientId;
+    const visibleDrawPile = visualDrawPile(player, game);
     return `
       <div class="station ${isCurrent ? "current" : ""} ${player.eliminated ? "eliminated" : ""}" style="left:${x}%;top:${y}%">
         <div class="station-name">${escapeHtml(player.username)} ${player.connected ? "" : "（退出）"} ${player.eliminated ? "（淘汰）" : ""}</div>
         <div class="piles">
           <button class="draw-stack" data-action="play-card" ${own && canPlay ? "" : "disabled"} title="出牌">
-            ${renderBackStack(player.drawPile)}
+            ${renderBackStack(visibleDrawPile)}
           </button>
           <div class="display-stack">
             ${renderDisplayStack(player.displayPile)}
           </div>
         </div>
-        <div class="count">未出 ${player.drawPile.length} | 已出 ${player.displayPile.length}</div>
+        <div class="count">未出 ${drawCount(player)} | 已出 ${displayCount(player)}</div>
         ${isCurrent ? renderTurnBanner(game, current, game.players.find((item) => item.clientId === app.clientId), game.lockedUntil > Date.now()) : ""}
       </div>
     `;
   }).join("");
+}
+
+function drawCount(player) {
+  return Number.isFinite(player.drawCount) ? player.drawCount : (player.drawPile || []).length;
+}
+
+function displayCount(player) {
+  return Number.isFinite(player.displayCount) ? player.displayCount : (player.displayPile || []).length;
+}
+
+function visualDrawPile(player, game) {
+  const cards = (player.drawPile || []).slice();
+  const animation = game.lastAnimation;
+  if (!animation || animation.type !== "fail") return cards;
+  const elapsed = Math.max(0, Date.now() - animation.startedAt);
+  const pendingIds = new Set((animation.transfers || [])
+    .filter((transfer) => transfer.toPlayerId === player.clientId && elapsed < transfer.delayMs + animation.moveMs)
+    .map((transfer) => transfer.card.id));
+  if (pendingIds.size === 0) return cards;
+  return cards.filter((card) => !pendingIds.has(card.id));
 }
 
 function playerLayouts(players) {
@@ -461,7 +570,7 @@ function playerLayouts(players) {
   return rotated.map((player, index) => {
     const angle = Math.PI / 2 + (Math.PI * 2 * index / n);
     const x = 50 + Math.cos(angle) * 38;
-    const y = 49 + Math.sin(angle) * 36;
+    const y = 46 + Math.sin(angle) * 34;
     return {
       player,
       x,
@@ -852,7 +961,7 @@ async function beginPreload() {
   const game = app.snapshot.currentGame;
   if (!room || !game || (app.loading.gameId === game.id && (app.loading.done || app.loading.running))) return;
   if (app.loading.gameId !== game.id) {
-    app.loading = { gameId: game.id, loaded: 0, total: 0, done: false, running: false, cached: false, manifestKey: "" };
+    app.loading = { gameId: game.id, loaded: 0, total: 0, done: false, running: false, cached: false, manifestKey: "", lastReportAt: 0 };
   }
   app.loading.running = true;
   try {
@@ -862,15 +971,19 @@ async function beginPreload() {
     app.loading.manifestKey = manifest.key;
     app.loading.cached = localStorage.getItem(cacheKey) === "1";
     app.loading.total = urls.length;
+    app.loading.loaded = 0;
+    await reportLoadingProgress(room, false, true);
     render();
-    for (const url of urls) {
-      await preloadImage(url).catch(() => undefined);
+    for (let index = 0; index < urls.length; index += 1) {
+      const url = urls[index];
+      await preloadAsset(url).catch(() => undefined);
       app.loading.loaded += 1;
+      await reportLoadingProgress(room, false, index % 5 === 0);
       render();
     }
     localStorage.setItem(cacheKey, "1");
     app.loading.done = true;
-    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/loading-ready`, authPayload());
+    await reportLoadingProgress(room, true, true);
     await refresh();
     if (app.snapshot.currentGame?.status === "playing") setRoute("game");
   } catch (error) {
@@ -878,6 +991,29 @@ async function beginPreload() {
   } finally {
     app.loading.running = false;
   }
+}
+
+async function reportLoadingProgress(room, done = false, force = false) {
+  const now = Date.now();
+  if (!force && !done && now - app.loading.lastReportAt < 180) return;
+  app.loading.lastReportAt = now;
+  await postJson(`/api/rooms/${encodeURIComponent(room.id)}/loading-progress`, authPayload({
+    loaded: app.loading.loaded,
+    total: app.loading.total,
+    cached: app.loading.cached,
+    manifestKey: app.loading.manifestKey,
+    done,
+  }));
+}
+
+function preloadAsset(url) {
+  if (/\.(?:mp3|wav)$/i.test(url)) {
+    return fetch(url, { cache: "force-cache" }).then((response) => {
+      if (!response.ok) throw new Error("Audio preload failed.");
+      return response.blob();
+    });
+  }
+  return preloadImage(url);
 }
 
 function preloadImage(url) {
@@ -892,10 +1028,16 @@ function preloadImage(url) {
 async function playCard() {
   const game = app.snapshot.currentGame;
   if (!game) return;
+  const button = document.querySelector('button[data-action="play-card"]');
+  if (button && !button.disabled) {
+    sendCardAudio.currentTime = 0;
+    sendCardAudio.play().catch(() => {});
+  }
   await safeAction(`/api/games/${encodeURIComponent(game.id)}/play-card`);
 }
 
 const bellAudio = new Audio('/ding.wav');
+const sendCardAudio = new Audio('/sendcard.mp3');
 
 async function ringBell() {
   const game = app.snapshot.currentGame;
