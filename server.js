@@ -69,9 +69,10 @@ function createApp(options = {}) {
         if (game.turnDeadlineAt > disconnectedDeadline) game.turnDeadlineAt = disconnectedDeadline;
       }
       if (player && !player.eliminated && !player.exited && player.drawPile.length > 0 && now >= game.turnDeadlineAt) {
-        performPlayCard(game, player.clientId, { now, auto: true });
+        const result = performPlayCard(game, player.clientId, { now, auto: true });
         changed = true;
         finalizeGameIfNeeded(game, state, dataFile);
+        if (result.ok) emitAudioEvent(state, "play-card", { roomId: game.roomId, gameId: game.id });
       }
     }
     if (changed) broadcast(state);
@@ -593,12 +594,14 @@ function setConnected(state, clientId, connected) {
     }
   }
   for (const game of state.games.values()) {
+    const room = state.rooms.get(game.roomId);
+    const remainsInRoom = room?.players.includes(clientId) || room?.spectators.includes(clientId);
+    if (connected && !remainsInRoom) continue;
     const changed = markConnection(game, clientId, connected, { disconnectProtection: game.settings.disconnectProtection });
     if (changed) {
       if (!connected && game.status === "playing" && game.players[game.turnIndex]?.clientId === clientId && game.settings.disconnectProtection) {
         setTurnTiming(game, Date.now(), 0);
       }
-      const room = state.rooms.get(game.roomId);
       if (room && game.status === "finished") room.status = "finished";
     }
   }
@@ -620,6 +623,7 @@ function leaveOtherRooms(state, clientId, keepRoomId = null) {
       if (gamePlayer) {
         markConnection(game, clientId, false, { disconnectProtection: game.settings.disconnectProtection });
         gamePlayer.exited = true;
+        game.continueVotes = game.continueVotes.filter((id) => id !== clientId);
         if (game.status !== "finished") checkGameOver(game, Date.now());
       }
       game.spectators = game.spectators.filter((id) => id !== clientId);
@@ -649,6 +653,7 @@ function leaveRoom(room, clientId, state) {
     if (gamePlayer) {
       markConnection(game, clientId, false, { disconnectProtection: game.settings.disconnectProtection });
       gamePlayer.exited = true;
+      game.continueVotes = game.continueVotes.filter((id) => id !== clientId);
       if (game.status !== "finished" && game.players[game.turnIndex]?.clientId === clientId && game.settings.disconnectProtection) {
         setTurnTiming(game, Date.now(), 0);
       }
@@ -1057,6 +1062,8 @@ function serveStatic(req, res, pathname, context) {
     filePath = path.join(rootDir, "bell.png");
   } else if (pathname === "/assets/logo.png" || pathname === "/logo.png") {
     filePath = path.join(rootDir, "logo.png");
+  } else if (/^\/(?:assets\/)?bg[1-3]\.jpg$/.test(pathname)) {
+    filePath = path.join(rootDir, path.basename(pathname));
   } else if (pathname === "/ding.wav") {
     filePath = path.join(rootDir, "ding.wav");
   } else if (pathname === "/sendcard.mp3") {
@@ -1094,7 +1101,7 @@ function serveStatic(req, res, pathname, context) {
 }
 
 function assetCacheControl(pathname) {
-  if (pathname.startsWith("/cards/") || pathname === "/assets/bell.png" || pathname === "/bell.png" || pathname === "/assets/logo.png" || pathname === "/logo.png" || pathname === "/ding.wav" || pathname === "/sendcard.mp3") {
+  if (pathname.startsWith("/cards/") || /^\/(?:assets\/)?bg[1-3]\.jpg$/.test(pathname) || pathname === "/assets/bell.png" || pathname === "/bell.png" || pathname === "/assets/logo.png" || pathname === "/logo.png" || pathname === "/ding.wav" || pathname === "/sendcard.mp3") {
     return "public, max-age=31536000, immutable";
   }
   return "no-cache";

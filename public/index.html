@@ -4,6 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>帧封相对 | Clash of Frames</title>
+    <link rel="preload" as="image" href="/assets/bg1.jpg">
+    <link rel="preload" as="image" href="/assets/bg2.jpg">
+    <link rel="preload" as="image" href="/assets/bg3.jpg">
+    <script>
+      document.documentElement.style.setProperty("--menu-bg-image", `url("/assets/bg${Math.floor(Math.random() * 3) + 1}.jpg")`);
+    </script>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>

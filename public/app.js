@@ -22,6 +22,7 @@ const app = {
   refreshQueued: false,
   stateRefreshTimer: null,
   countdownTimer: null,
+  backdropRouteName: "",
 };
 
 document.addEventListener("DOMContentLoaded", init);
@@ -136,6 +137,7 @@ function setRoute(name, params = {}) {
 }
 
 function render() {
+  syncBackdrop();
   const root = document.querySelector("#app");
   if (!app.snapshot) {
     root.innerHTML = `<main class="page"><div class="panel">加载中...</div></main>`;
@@ -146,6 +148,26 @@ function render() {
   root.innerHTML = content;
   if (app.route.name === "loading") beginPreload();
   scheduleCountdownRender();
+}
+
+function syncBackdrop() {
+  const body = document.body;
+  if (!body) return;
+  const isGame = app.route.name === "game";
+  body.classList.toggle("game-route", isGame);
+  body.classList.toggle("menu-backdrop", !isGame);
+  if (isGame) {
+    app.backdropRouteName = "game";
+    return;
+  }
+  const routeKey = `${app.route.name}:${app.route.roomId || ""}:${app.route.transfer ? "transfer" : ""}`;
+  if (app.backdropRouteName === routeKey) return;
+  app.backdropRouteName = routeKey;
+  body.style.setProperty("--menu-bg-image", `url("${randomMenuBackground()}")`);
+}
+
+function randomMenuBackground() {
+  return `/assets/bg${Math.floor(Math.random() * 3) + 1}.jpg`;
 }
 
 function renderShell() {
@@ -647,7 +669,7 @@ function renderBackStack(cards) {
 
 function renderDisplayStack(cards) {
   return cards.map((card, index) => `
-    <img class="mini-card" src="${escapeAttr(card.imageUrl)}" alt="${escapeAttr(card.pmvName)}" style="${stackStyle(card.id, index, "display", false)}">
+    <img class="mini-card" src="${escapeAttr(card.imageUrl)}" alt="${escapeAttr(card.pmvName || "")}" style="${stackStyle(card.id, index, "display", false)}">
   `).join("");
 }
 

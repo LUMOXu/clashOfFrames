@@ -19,7 +19,6 @@ const SUCCESS_MOVE_MS = 1200;
 const FAIL_MOVE_MS = 900;
 const FAIL_STAGGER_MS = 300;
 const PUBLIC_LOG_LIMIT = 40;
-const PUBLIC_DISPLAY_CARD_LIMIT = 1;
 const PUBLIC_ANIMATION_CARDS_PER_PILE = 8;
 
 function clone(value) {
@@ -165,6 +164,15 @@ function publicFaceCard(card) {
   };
 }
 
+function publicStackFaceCard(card, isTop) {
+  if (isTop) return publicFaceCard(card);
+  return {
+    id: card.id,
+    imageUrl: card.imageUrl,
+    playedSeq: card.playedSeq || 0,
+  };
+}
+
 function publicAnimation(animation) {
   if (!animation) return null;
   if (animation.type === "success") {
@@ -238,7 +246,7 @@ function publicGame(game) {
       drawCount: player.drawPile.length,
       displayCount: player.displayPile.length,
       drawPile: player.drawPile.slice(0, 8).map(publicBackCard),
-      displayPile: player.displayPile.slice(-PUBLIC_DISPLAY_CARD_LIMIT).map(publicFaceCard),
+      displayPile: player.displayPile.map((card, index) => publicStackFaceCard(card, index === player.displayPile.length - 1)),
     })),
   };
 }

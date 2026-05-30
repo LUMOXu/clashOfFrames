@@ -178,7 +178,7 @@ test("finished game summary includes winner and bell totals", () => {
   assert.equal(summary.averageRoundLength, game.playCount / 2);
 });
 
-test("public game state keeps table piles compact", () => {
+test("public game state keeps full table piles with compact non-top cards", () => {
   const game = sampleGame();
   game.players[0].displayPile = Array.from({ length: 20 }, (_, index) => ({
     ...sampleCard(`shown-${index}`, index),
@@ -189,8 +189,11 @@ test("public game state keeps table piles compact", () => {
   const snapshot = publicGame(game);
 
   assert.equal(snapshot.players[0].displayCount, 20);
-  assert.equal(snapshot.players[0].displayPile.length, 1);
-  assert.equal(snapshot.players[0].displayPile[0].id, "shown-19");
+  assert.equal(snapshot.players[0].displayPile.length, 20);
+  assert.deepEqual(Object.keys(snapshot.players[0].displayPile[0]).sort(), ["id", "imageUrl", "playedSeq"].sort());
+  assert.equal(snapshot.players[0].displayPile[0].id, "shown-0");
+  assert.equal(snapshot.players[0].displayPile[19].id, "shown-19");
+  assert.equal(snapshot.players[0].displayPile[19].pmvId, 19);
 });
 
 test("public success animation only includes visible card details", () => {

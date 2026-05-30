@@ -62,6 +62,52 @@ async function loadingProgress(base, roomId, auth, loaded, total, done = false) 
   }));
 }
 
+async function openEvents(base, auth) {
+  const controller = new AbortController();
+  const response = await fetch(`${base}/api/events?token=${encodeURIComponent(auth.token)}`, {
+    signal: controller.signal,
+  });
+  assert.equal(response.ok, true);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  return {
+    async nextEvent(timeoutMs = 1500) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const separator = buffer.indexOf("\n\n");
+        if (separator >= 0) {
+          const raw = buffer.slice(0, separator);
+          buffer = buffer.slice(separator + 2);
+          return raw;
+        }
+        const remaining = Math.max(1, deadline - Date.now());
+        const result = await Promise.race([
+          reader.read(),
+          new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), remaining)),
+        ]);
+        if (result.timeout) break;
+        if (result.done) break;
+        buffer += decoder.decode(result.value, { stream: true });
+      }
+      throw new Error("Timed out waiting for SSE event.");
+    },
+    async close() {
+      controller.abort();
+      await reader.cancel().catch(() => undefined);
+    },
+  };
+}
+
+async function waitForEvent(stream, name, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const event = await stream.nextEvent(Math.max(1, deadline - Date.now()));
+    if (event.includes(`event: ${name}`)) return event;
+  }
+  throw new Error(`Timed out waiting for ${name} SSE event.`);
+}
+
 test("API smoke: auth, assets, room flow, loading, and play", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
   const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
@@ -205,6 +251,94 @@ test("loading progress is monotonic and finished rooms can be reused or disbande
     const missing = await requestFailure(base, "POST", `/api/rooms/${roomId}/join`, payload(p4));
     assert.match(missing.error, /房间不存在/);
   } finally {
+    await close(server);
+  }
+});
+
+test("leaving a finished room is not undone by a later SSE reconnect", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+  let stream = null;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const p1 = await register(base, "Host Finished");
+    const p2 = await register(base, "Leaving Player");
+    const p3 = await register(base, "Stayer");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 3, maxPlayers: 8, isPublic: true, libraryIds },
+    }));
+    const roomId = created.room.id;
+    await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p2));
+    await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p3));
+    const started = await request(base, "POST", `/api/rooms/${roomId}/start`, payload(p1));
+    await loadingProgress(base, roomId, p1, 1, 1, true);
+    await loadingProgress(base, roomId, p2, 1, 1, true);
+    await loadingProgress(base, roomId, p3, 1, 1, true);
+
+    const game = state.games.get(started.game.id);
+    const room = state.rooms.get(roomId);
+    game.status = "finished";
+    game.winnerId = p1.clientId;
+    game.finishedAt = Date.now();
+    game.continueVotes = [p1.clientId, p2.clientId, p3.clientId];
+    game.continueCountdownStartedAt = Date.now() - 11000;
+    game.continueReturnAt = Date.now() - 1;
+    room.status = "finished";
+
+    await request(base, "POST", `/api/rooms/${roomId}/leave`, payload(p2));
+    stream = await openEvents(base, p2);
+    await stream.nextEvent();
+    await new Promise((resolve) => setTimeout(resolve, 650));
+
+    const p2Bootstrap = await request(base, "GET", `/api/bootstrap?token=${encodeURIComponent(p2.token)}`);
+    const p1Bootstrap = await request(base, "GET", `/api/bootstrap?token=${encodeURIComponent(p1.token)}`);
+    assert.equal(p2Bootstrap.currentRoom, null);
+    assert.equal(p1Bootstrap.currentRoom.players.some((player) => player.clientId === p2.clientId), false);
+  } finally {
+    if (stream) await stream.close();
+    await close(server);
+  }
+});
+
+test("automatic play emits the same play-card audio event as manual play", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+  let stream = null;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const p1 = await register(base, "Audio Host");
+    const p2 = await register(base, "Audio B");
+    const p3 = await register(base, "Audio C");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 3, maxPlayers: 8, isPublic: true, libraryIds },
+    }));
+    const roomId = created.room.id;
+    await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p2));
+    await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p3));
+    const started = await request(base, "POST", `/api/rooms/${roomId}/start`, payload(p1));
+    await loadingProgress(base, roomId, p1, 1, 1, true);
+    await loadingProgress(base, roomId, p2, 1, 1, true);
+    await loadingProgress(base, roomId, p3, 1, 1, true);
+
+    stream = await openEvents(base, p1);
+    await stream.nextEvent();
+    const game = state.games.get(started.game.id);
+    game.turnDeadlineAt = Date.now() - 1;
+    game.turnAvailableAt = Date.now() - 1;
+
+    const event = await waitForEvent(stream, "audio", 2500);
+    assert.match(event, /"type":"play-card"/);
+    assert.match(event, new RegExp(`"gameId":"${started.game.id}"`));
+  } finally {
+    if (stream) await stream.close();
     await close(server);
   }
 });
