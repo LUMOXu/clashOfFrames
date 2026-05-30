@@ -59,6 +59,8 @@ globalThis.__helpers = {
   startVoteRequirement: typeof startVoteRequirement === "function" ? startVoteRequirement : undefined,
   libraryCopyLimit: typeof libraryCopyLimit === "function" ? libraryCopyLimit : undefined,
   formatChatLine: typeof formatChatLine === "function" ? formatChatLine : undefined,
+  renderChat: typeof renderChat === "function" ? renderChat : undefined,
+  renderResult: typeof renderResult === "function" ? renderResult : undefined,
   renderPlayerLabel: typeof renderPlayerLabel === "function" ? renderPlayerLabel : undefined,
 };`, context);
   return context;
@@ -180,4 +182,30 @@ test("client helpers format voting, copies, chat, and computer labels", () => {
     `[${new Date(1000).toLocaleTimeString("zh-CN", { hour12: false })}][User]<hello>`,
   );
   assert.match(context.__helpers.renderPlayerLabel({ username: "Bot", isComputer: true }), /Computer/);
+});
+
+test("result continue count and god labels ignore computers", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const game = {
+    ...sampleFinishedGame(),
+    winnerId: "a",
+    continueVotes: ["a"],
+    continueReturnAt: null,
+    players: [
+      { clientId: "a", username: "Slayer", connected: true, godSlayer: true },
+      { clientId: "bot", username: "Bot", connected: true, isComputer: true },
+    ],
+  };
+
+  assert.match(context.__helpers.renderResult(game), /1\/1/);
+  assert.match(context.__helpers.renderPlayerLabel({ username: "Slayer", godSlayer: true }), /god-slayer-name/);
+});
+
+test("chat render keeps the current draft through game refreshes", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  context.__app.chat = { draft: "中文草稿", focused: true, composing: false, pendingRender: false };
+
+  const html = context.__helpers.renderChat({ chatMessages: [] }, "game");
+
+  assert.match(html, /value="中文草稿"/);
 });

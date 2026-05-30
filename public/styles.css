@@ -228,21 +228,59 @@ label {
 }
 
 .computer-row {
-  align-items: center;
+  align-items: start;
   background: rgba(8, 11, 8, .28);
   border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 8px;
-  display: flex;
+  display: grid;
   gap: 12px;
-  justify-content: space-between;
+  grid-template-columns: minmax(0, 1fr) auto;
   padding: 10px;
+}
+
+.computer-row > span,
+.computer-row > div {
+  min-width: 0;
+}
+
+.computer-row button,
+.computer-row input[type="checkbox"] {
+  align-self: center;
 }
 
 .computer-stats {
   color: var(--muted);
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
   font-size: 12px;
+  gap: 6px 12px;
   margin-top: 4px;
+}
+
+.god-slayer-name {
+  color: #ffe79a;
+  font-size: 1.14em;
+  font-weight: 900;
+}
+
+.god-reward-modal {
+  align-items: center;
+  background: rgba(0, 0, 0, .62);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 60;
+}
+
+.god-reward-panel {
+  background: rgba(14, 17, 14, .97);
+  border: 1px solid rgba(243, 215, 117, .62);
+  border-radius: 8px;
+  box-shadow: 0 22px 60px var(--shadow);
+  max-width: 460px;
+  padding: 20px;
 }
 
 .pill {

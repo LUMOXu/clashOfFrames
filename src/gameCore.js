@@ -672,6 +672,7 @@ function summarizeGameForStats(game) {
       computerId: player.computerId,
       statsId: player.statsId,
       rank: player.rank || null,
+      finalDrawCount: player.drawPile.length,
       stats: clone(player.stats),
     })),
   };

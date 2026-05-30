@@ -28,6 +28,8 @@ const app = {
   stateRefreshTimer: null,
   countdownTimer: null,
   resultReplay: { gameId: null, startedAt: 0 },
+  chat: { draft: "", focused: false, composing: false, pendingRender: false },
+  rendering: false,
   backdropRouteName: "",
 };
 
@@ -39,6 +41,11 @@ document.addEventListener("DOMContentLoaded", init);
 document.addEventListener("click", handleClick);
 document.addEventListener("submit", handleSubmit);
 document.addEventListener("change", handleChange);
+document.addEventListener("input", handleInput);
+document.addEventListener("focusin", handleFocusIn);
+document.addEventListener("focusout", handleFocusOut);
+document.addEventListener("compositionstart", handleCompositionStart);
+document.addEventListener("compositionend", handleCompositionEnd);
 
 async function init() {
   await refresh();
@@ -150,6 +157,11 @@ function setRoute(name, params = {}) {
 }
 
 function render() {
+  captureChatDraft();
+  if (app.chat.composing) {
+    app.chat.pendingRender = true;
+    return;
+  }
   syncBackdrop();
   const root = document.querySelector("#app");
   if (!app.snapshot) {
@@ -158,10 +170,112 @@ function render() {
   }
 
   const content = app.route.name === "auth" || !app.snapshot.player ? renderAuth() : renderShell();
+  const shouldRestoreChat = app.chat.focused;
+  app.rendering = true;
   root.innerHTML = content;
+  app.rendering = false;
+  highlightGodSlayerNames(root);
+  if (shouldRestoreChat) restoreChatFocus();
+  renderGodRewardModal();
   if (app.route.name === "loading") beginPreload();
   if (app.route.name === "card-loading") beginCardViewerPreload();
   scheduleCountdownRender();
+}
+
+function chatInputElement(root = document) {
+  return root?.querySelector?.("[data-chat-input]") || null;
+}
+
+function captureChatDraft() {
+  const input = chatInputElement();
+  if (!input) return;
+  app.chat.draft = input.value || "";
+  app.chat.focused = document.activeElement === input || app.chat.focused;
+}
+
+function restoreChatFocus() {
+  const input = chatInputElement();
+  if (!input) return;
+  input.focus({ preventScroll: true });
+  const end = input.value.length;
+  try {
+    input.setSelectionRange(end, end);
+  } catch { /* ignore unsupported input selection */ }
+}
+
+function renderGodRewardModal() {
+  const player = app.snapshot?.player;
+  const game = app.snapshot?.currentGame;
+  if (!player?.godSlayer || !player.godRewardGameId || game?.id !== player.godRewardGameId || game.status !== "finished") return;
+  const storageKey = `cof.godReward.${player.clientId}.${player.godRewardGameId}`;
+  if (localStorage.getItem(storageKey) === "1") return;
+  const root = document.querySelector("#app");
+  if (!root?.insertAdjacentHTML) return;
+  root.insertAdjacentHTML("beforeend", `
+    <div class="god-reward-modal" role="dialog" aria-modal="true">
+      <div class="god-reward-panel">
+        <h2>恭喜！！！</h2>
+        <p>你击败了帧封相对之神，胜天至少三子！以后，你的名字会以更醒目的样式出现在所有玩家列表和对局里！</p>
+        <p>请截图这个页面发给页面下方的作者，领取GOD Slayer纪念奖励——一份CSBC'25的PMV静帧扑克牌！</p>
+        <button class="primary" data-action="dismiss-god-reward" data-game="${escapeAttr(player.godRewardGameId)}">收下</button>
+      </div>
+    </div>
+  `);
+}
+
+function godSlayerNames() {
+  const names = new Set();
+  const collect = (player) => {
+    if (player?.godSlayer && !player?.isComputer && player.username) names.add(String(player.username));
+  };
+  collect(app.snapshot?.player);
+  (app.snapshot?.rooms || []).forEach((room) => (room.players || []).forEach(collect));
+  (app.snapshot?.currentRoom?.players || []).forEach(collect);
+  (app.snapshot?.currentGame?.players || []).forEach(collect);
+  (app.snapshot?.currentGame?.resultInfo?.players || []).forEach(collect);
+  (app.leaderboard?.players || []).forEach(collect);
+  collect(app.profile);
+  return [...names].sort((a, b) => b.length - a.length);
+}
+
+function highlightGodSlayerNames(root) {
+  if (!root || !document.createTreeWalker) return;
+  const names = godSlayerNames();
+  if (!names.length) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || parent.closest(".god-slayer-name, input, textarea, script, style")) return NodeFilter.FILTER_REJECT;
+      return names.some((name) => node.nodeValue.includes(name)) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    const fragment = document.createDocumentFragment();
+    let text = node.nodeValue;
+    while (text) {
+      const match = names
+        .map((name) => ({ name, index: text.indexOf(name) }))
+        .filter((item) => item.index >= 0)
+        .sort((a, b) => a.index - b.index || b.name.length - a.name.length)[0];
+      if (!match) {
+        fragment.appendChild(document.createTextNode(text));
+        break;
+      }
+      if (match.index > 0) fragment.appendChild(document.createTextNode(text.slice(0, match.index)));
+      const span = document.createElement("span");
+      span.className = "god-slayer-name";
+      span.textContent = match.name;
+      fragment.appendChild(span);
+      text = text.slice(match.index + match.name.length);
+    }
+    node.parentNode.replaceChild(fragment, node);
+  });
+}
+
+function isChatInput(target) {
+  return Boolean(target?.matches?.("[data-chat-input]"));
 }
 
 function syncBackdrop() {
@@ -577,6 +691,7 @@ function startVoteRequirement(room) {
 
 function renderChat(room, mode = "") {
   const messages = room?.chatMessages || [];
+  const draft = app.chat.draft || "";
   return `
     <section class="chat-area ${mode === "game" ? "game-chat" : ""}">
       <h3>聊天</h3>
@@ -588,7 +703,7 @@ function renderChat(room, mode = "") {
         <button type="submit">发送</button>
       </form>
     </section>
-  `;
+  `.replace("name=\"message\"", `data-chat-input name="message" value="${escapeAttr(draft)}"`);
 }
 
 function formatChatLine(message) {
@@ -596,7 +711,14 @@ function formatChatLine(message) {
   return `[${time}][${message.username}]${message.message}`;
 }
 
+function renderPlayerName(player, fallback = "Player") {
+  const name = escapeHtml(player?.username || fallback);
+  if (player?.godSlayer && !player?.isComputer) return `<span class="god-slayer-name">${name}</span>`;
+  return name;
+}
+
 function renderPlayerLabel(player) {
+  if (player?.godSlayer && !player?.isComputer) return `${renderPlayerName(player)} `;
   return `${escapeHtml(player.username || "玩家")} ${player.isComputer ? `<span class="pill">Computer</span>` : ""}`;
 }
 
@@ -646,7 +768,7 @@ function renderLoadingRow(player) {
   return `
     <div class="loading-player-row">
       <div class="loading-player-head">
-        <span>${escapeHtml(player.username)}</span>
+        <span>${renderPlayerName(player)}</span>
         <span class="pill ${player.ready ? "ok" : ""}">${player.ready ? "已完成" : `${player.progress}%`}</span>
       </div>
       <div class="loading-bar"><div class="loading-fill" style="width:${player.progress}%"></div></div>
@@ -692,6 +814,7 @@ function renderGame() {
 
 function renderGameAlert(game) {
   const last = game.lastMatch;
+  const actor = last ? game.players.find((player) => player.clientId === last.by) || last : null;
   if (!last || Date.now() - last.at > 5200) return "";
   if (last.type === "fail") {
     return `<div class="game-alert fail"><strong>错误按铃</strong><div>${escapeHtml(last.username)} 交出 ${last.given} 张牌</div></div>`;
@@ -706,6 +829,10 @@ function renderGameAlert(game) {
 }
 
 function renderTurnBanner(game, current, self, locked) {
+  if (game.status === "playing" && current?.godSlayer && current.clientId !== self?.clientId) {
+    const detail = turnBannerDetail(game, current, self, locked, Date.now());
+    return `<div class="turn-banner"><strong>轮到 ${renderPlayerName(current)} 出牌</strong>${detail ? `<span>${escapeHtml(detail)}</span>` : ""}</div>`;
+  }
   if (game.status !== "playing" || !current) return "";
   const label = current.clientId === self?.clientId ? "轮到你出牌" : `轮到 ${current.username} 出牌`;
   const detail = turnBannerDetail(game, current, self, locked, Date.now());
@@ -999,7 +1126,7 @@ function renderResultChart(game, startedAt, now = Date.now()) {
   const legend = model.series.map((series) => `
     <span class="result-legend-item ${series.winner ? "winner" : ""}">
       <span class="result-swatch" style="background:${escapeAttr(series.color)}"></span>
-      ${escapeHtml(series.username)}
+      ${renderPlayerName(series)}
     </span>
   `).join("");
   return `
@@ -1018,8 +1145,9 @@ function renderResultChart(game, startedAt, now = Date.now()) {
 function renderResult(game) {
   const winner = game.players.find((player) => player.clientId === game.winnerId);
   const average = game.successBellCount ? (game.playCount / game.successBellCount).toFixed(2) : game.playCount;
-  const connectedTotal = game.players.filter((player) => player.connected !== false && !player.exited).length;
-  const validVotes = game.continueVotes.filter((clientId) => game.players.some((player) => player.clientId === clientId && player.connected !== false && !player.exited)).length;
+  const continuablePlayers = game.players.filter((player) => !player.isComputer && player.connected !== false && !player.exited);
+  const connectedTotal = continuablePlayers.length;
+  const validVotes = game.continueVotes.filter((clientId) => continuablePlayers.some((player) => player.clientId === clientId)).length;
   const countdown = game.continueReturnAt ? Math.max(0, Math.ceil((game.continueReturnAt - Date.now()) / 1000)) : null;
   const now = Date.now();
   const replayStartedAt = ensureResultReplay(game, now);
@@ -1226,11 +1354,24 @@ function renderTable(sortName, rows, columns) {
       <table>
         <thead><tr>${columns.map(([key, label]) => `<th><button data-action="sort" data-sort="${sortName}" data-key="${key}">${label}</button></th>`).join("")}</tr></thead>
         <tbody>
-          ${rows.length ? rows.map((row) => `<tr>${columns.map(([, , cell]) => `<td>${escapeHtml(String(cell(row) ?? ""))}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${columns.length}">暂无数据</td></tr>`}
+          ${rows.length ? rows.map((row) => `<tr>${columns.map(([, , cell]) => `<td>${renderTableCell(cell(row))}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${columns.length}">暂无数据</td></tr>`}
         </tbody>
       </table>
     </div>
   `;
+}
+
+function htmlCell(value) {
+  return { __html: String(value ?? "") };
+}
+
+function renderTableCell(value) {
+  if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "__html")) return value.__html;
+  const text = String(value ?? "");
+  const godPlayer = [...(app.leaderboard?.players || []), app.profile, app.snapshot?.player]
+    .find((player) => player?.godSlayer && !player?.isComputer && player.username === text);
+  if (godPlayer) return renderPlayerName(godPlayer);
+  return escapeHtml(text);
 }
 
 async function loadProfile() {
@@ -1425,6 +1566,7 @@ async function handleClick(event) {
   if (action === "cancel-start-vote") return cancelStartVote();
   if (action === "add-computer") return addComputer(button.dataset.computer);
   if (action === "remove-computer") return removeComputer(button.dataset.computer);
+  if (action === "dismiss-god-reward") return dismissGodReward(button.dataset.game);
   if (action === "card-tab") {
     app.cardViewer.activeLibraryId = button.dataset.library;
     render();
@@ -1444,6 +1586,39 @@ function handleChange(event) {
     .reduce((sum, library) => sum + library.cardCount * (Number.parseInt(data.get(`libraryCopies.${library.id}`), 10) || 1), 0);
   const badge = form.querySelector("[data-card-total]");
   if (badge) badge.textContent = `当前 ${total} 张`;
+}
+
+function handleInput(event) {
+  if (!isChatInput(event.target)) return;
+  app.chat.draft = event.target.value || "";
+}
+
+function handleFocusIn(event) {
+  if (!isChatInput(event.target)) return;
+  app.chat.focused = true;
+  app.chat.draft = event.target.value || app.chat.draft || "";
+}
+
+function handleFocusOut(event) {
+  if (!isChatInput(event.target) || app.rendering) return;
+  app.chat.focused = false;
+  app.chat.draft = event.target.value || "";
+}
+
+function handleCompositionStart(event) {
+  if (!isChatInput(event.target)) return;
+  app.chat.composing = true;
+  app.chat.focused = true;
+}
+
+function handleCompositionEnd(event) {
+  if (!isChatInput(event.target)) return;
+  app.chat.composing = false;
+  app.chat.draft = event.target.value || "";
+  if (app.chat.pendingRender) {
+    app.chat.pendingRender = false;
+    render();
+  }
 }
 
 async function handleSubmit(event) {
@@ -1623,6 +1798,11 @@ async function removeComputer(computerId) {
   await safeRoomAction(`/api/rooms/${encodeURIComponent(room.id)}/remove-computer`, { computerId });
 }
 
+function dismissGodReward(gameId) {
+  if (app.clientId && gameId) localStorage.setItem(`cof.godReward.${app.clientId}.${gameId}`, "1");
+  document.querySelector(".god-reward-modal")?.remove();
+}
+
 async function sendChat(form) {
   const room = currentRoom();
   if (!room) return;
@@ -1630,6 +1810,7 @@ async function sendChat(form) {
   const message = input?.value || "";
   if (!message.trim()) return;
   await safeRoomAction(`/api/rooms/${encodeURIComponent(room.id)}/chat`, { message });
+  app.chat.draft = "";
   if (input) input.value = "";
 }
 

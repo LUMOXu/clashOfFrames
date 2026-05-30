@@ -28,6 +28,8 @@ const PASSWORD_KEY_LENGTH = 32;
 const PASSWORD_DIGEST = "sha256";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const WAITING_DISCONNECT_KICK_MS = 2 * 60 * 1000;
+const LOADING_DISCONNECT_KICK_MS = 10 * 1000;
+const GOD_COMPUTER_ID = "computer_god";
 
 function createApp(options = {}) {
   const rootDir = options.rootDir || ROOT_DIR;
@@ -67,6 +69,9 @@ function createApp(options = {}) {
       if (room.status === "waiting" && pruneWaitingDisconnectedPlayers(room, state, now)) {
         changed = true;
       }
+      if (room.status === "loading" && pruneLoadingDisconnectedPlayers(room, state, now)) {
+        changed = true;
+      }
       if (room.status === "waiting" && room.startAt && now >= room.startAt) {
         try {
           startRoomGame(room, state, cardLibraries);
@@ -85,7 +90,6 @@ function createApp(options = {}) {
         continue;
       }
       if (game.status !== "playing") continue;
-      if (game.lockedUntil > now) continue;
       const computerChanged = advanceComputerPlayers(game, state, now);
       if (computerChanged.played) emitAudioEvent(state, "play-card", { roomId: game.roomId, gameId: game.id });
       if (computerChanged.rang) emitAudioEvent(state, "ring-bell", { roomId: game.roomId, gameId: game.id });
@@ -94,6 +98,7 @@ function createApp(options = {}) {
         changed = true;
         continue;
       }
+      if (game.lockedUntil > now) continue;
       const player = game.players[game.turnIndex];
       if (player && player.connected === false && game.settings.disconnectProtection) {
         const disconnectedDeadline = (game.turnStartedAt || game.turnAvailableAt || now) + 2000;
@@ -338,7 +343,7 @@ async function handleApi(req, res, url, pathname, context) {
       ensureHost(room, clientId);
       const game = startRoomGame(room, state, cardLibraries);
       broadcast(state);
-      return sendJson(res, 200, { room: roomSummary(room, state), game: publicGame(game) });
+      return sendJson(res, 200, { room: roomSummary(room, state), game: publicGameFor(game, state.data) });
     }
 
     if (action === "loading-ready") {
@@ -353,7 +358,7 @@ async function handleApi(req, res, url, pathname, context) {
       advanceLoading(room, game, state);
       finalizeGameIfNeeded(game, state, dataFile);
       broadcast(state);
-      return sendJson(res, 200, { room: roomSummary(room, state), game: publicGame(game) });
+      return sendJson(res, 200, { room: roomSummary(room, state), game: publicGameFor(game, state.data) });
     }
 
     if (action === "loading-progress") {
@@ -365,7 +370,7 @@ async function handleApi(req, res, url, pathname, context) {
       advanceLoading(room, game, state);
       finalizeGameIfNeeded(game, state, dataFile);
       broadcast(state);
-      return sendJson(res, 200, { room: roomSummary(room, state), game: publicGame(game) });
+      return sendJson(res, 200, { room: roomSummary(room, state), game: publicGameFor(game, state.data) });
     }
   }
 
@@ -383,7 +388,7 @@ async function handleApi(req, res, url, pathname, context) {
       finalizeGameIfNeeded(game, state, dataFile);
       broadcast(state);
       emitAudioEvent(state, "play-card", { roomId: game.roomId, gameId: game.id });
-      return sendJson(res, 200, { game: publicGame(game) });
+      return sendJson(res, 200, { game: publicGameFor(game, state.data) });
     }
 
     if (action === "ring-bell") {
@@ -392,7 +397,7 @@ async function handleApi(req, res, url, pathname, context) {
       finalizeGameIfNeeded(game, state, dataFile);
       broadcast(state);
       emitAudioEvent(state, "ring-bell", { roomId: game.roomId, gameId: game.id });
-      return sendJson(res, 200, { game: publicGame(game) });
+      return sendJson(res, 200, { game: publicGameFor(game, state.data) });
     }
 
     if (action === "continue") {
@@ -402,7 +407,7 @@ async function handleApi(req, res, url, pathname, context) {
       if (!game.continueVotes.includes(clientId)) game.continueVotes.push(clientId);
       maybeReturnToWaiting(room, game, state);
       broadcast(state);
-      return sendJson(res, 200, { room: roomSummary(room, state), game: publicGame(game) });
+      return sendJson(res, 200, { room: roomSummary(room, state), game: publicGameFor(game, state.data) });
     }
   }
 
@@ -505,13 +510,13 @@ function joinRoom(room, player, state) {
   if (game && game.players.some((item) => item.clientId === player.clientId)) {
     markConnection(game, player.clientId, true, { disconnectProtection: game.settings.disconnectProtection });
     player.currentRoomId = room.id;
-    return { room: roomSummary(room, state), game: publicGame(game), spectator: false };
+    return { room: roomSummary(room, state), game: publicGameFor(game, state.data), spectator: false };
   }
 
   if (!room.spectators.includes(player.clientId)) room.spectators.push(player.clientId);
   if (game && !game.spectators.includes(player.clientId)) game.spectators.push(player.clientId);
   player.currentRoomId = room.id;
-  return { room: roomSummary(room, state), game: game ? publicGame(game) : null, spectator: true };
+  return { room: roomSummary(room, state), game: game ? publicGameFor(game, state.data) : null, spectator: true };
 }
 
 function libraryCardCountMap(cardLibraries) {
@@ -623,6 +628,41 @@ function pruneWaitingDisconnectedPlayers(room, state, now = Date.now()) {
   return room.players.length !== beforePlayers || room.spectators.length !== beforeSpectators;
 }
 
+function pruneLoadingDisconnectedPlayers(room, state, now = Date.now()) {
+  if (room.status !== "loading") return false;
+  const game = room.gameId ? state.games.get(room.gameId) : null;
+  if (!game || game.status !== "loading") return false;
+  const shouldKick = (clientId) => {
+    const player = state.players.get(clientId);
+    if (!player || player.isComputer || player.connected !== false) return false;
+    return now - (player.lastSeenAt || now) >= LOADING_DISCONNECT_KICK_MS;
+  };
+  const kickedIds = new Set(room.players.filter(shouldKick));
+  if (kickedIds.size === 0) return false;
+
+  kickedIds.forEach((clientId) => {
+    const player = state.players.get(clientId);
+    if (player?.currentRoomId === room.id) player.currentRoomId = null;
+    const gamePlayer = game.players.find((item) => item.clientId === clientId);
+    if (gamePlayer) {
+      gamePlayer.connected = false;
+      gamePlayer.exited = true;
+      gamePlayer.ready = false;
+    }
+  });
+  room.players = room.players.filter((clientId) => !kickedIds.has(clientId));
+  room.startVotes = (room.startVotes || []).filter((clientId) => room.players.includes(clientId));
+  if (room.hostId && kickedIds.has(room.hostId)) migrateHost(room, state);
+
+  if (!hasHumanOccupants(room, state)) {
+    deleteRoom(room, state);
+    return true;
+  }
+
+  advanceLoading(room, game, state);
+  return true;
+}
+
 function addChatMessage(room, player, rawMessage) {
   const message = sanitizeChatMessage(rawMessage);
   if (!message) throw new Error("聊天内容不能为空。");
@@ -649,30 +689,37 @@ function advanceComputerPlayers(game, state, now = Date.now()) {
     if (!player.isComputer || player.eliminated || player.exited) continue;
     const profile = state.players.get(player.clientId)?.profile;
     if (!profile) continue;
-    if (!player.computerState) player.computerState = { name: "start", observedPlayCount: game.playCount };
+    if (!player.computerState) player.computerState = computerState("start", game);
     const stateName = player.computerState.name;
 
     if (stateName === "start") {
-      player.computerState = {
-        name: !tableHasDisplayCards(game) && canComputerPlay(game, player, now) ? "play" : "wait",
-        observedPlayCount: game.playCount,
-      };
+      player.computerState = computerState(!tableHasDisplayCards(game) && canComputerPlay(game, player, now) ? "play" : "wait", game);
       continue;
     }
 
     if (stateName === "wait") {
       if (game.playCount !== player.computerState.observedPlayCount) {
-        player.computerState = { name: "analysis", observedPlayCount: game.playCount };
+        player.computerState = computerState("analysis", game);
       } else if (canComputerPlay(game, player, now)) {
-        player.computerState = { name: "play", observedPlayCount: game.playCount };
+        player.computerState = computerState("play", game);
       }
       continue;
     }
 
     if (stateName === "play") {
+      if (game.bellCount !== player.computerState.observedBellCount) {
+        player.computerState = game.lockedUntil > now
+          ? computerState("settling", game, { waitUntil: game.lockedUntil })
+          : computerState("next", game);
+        continue;
+      }
+      if (game.playCount !== player.computerState.observedPlayCount) {
+        player.computerState = computerState("analysis", game);
+        continue;
+      }
       if (!canComputerPlay(game, player, now)) {
         if (game.players[game.turnIndex]?.clientId !== player.clientId) {
-          player.computerState = { name: "analysis", observedPlayCount: game.playCount };
+          player.computerState = computerState("analysis", game);
         }
         continue;
       }
@@ -682,7 +729,7 @@ function advanceComputerPlayers(game, state, now = Date.now()) {
       }
       if (now >= player.computerState.actionAt) {
         const played = performPlayCard(game, player.clientId, { now, auto: true });
-        player.computerState = { name: "analysis", observedPlayCount: game.playCount };
+        player.computerState = computerState("analysis", game);
         if (played.ok) {
           result.changed = true;
           result.played = true;
@@ -698,29 +745,33 @@ function advanceComputerPlayers(game, state, now = Date.now()) {
         ? Math.random() < profile.matchDetectionProbability
         : Math.random() < profile.falseRingProbability;
       player.computerState = shouldRing
-        ? {
-            name: "ring",
-            observedPlayCount: game.playCount,
+        ? computerState("ring", game, {
             actionAt: now + sampleClampedMs(profile.reactionMeanSeconds, profile.reactionStdSeconds, 100, Number.MAX_SAFE_INTEGER),
-          }
-        : { name: "next", observedPlayCount: game.playCount };
+          })
+        : computerState("next", game);
       continue;
     }
 
     if (stateName === "ring") {
+      if (game.bellCount !== player.computerState.observedBellCount) {
+        player.computerState = game.lockedUntil > now
+          ? computerState("settling", game, { waitUntil: game.lockedUntil })
+          : computerState("next", game);
+        continue;
+      }
       if (game.playCount !== player.computerState.observedPlayCount) {
-        player.computerState = { name: "analysis", observedPlayCount: game.playCount };
+        player.computerState = computerState("analysis", game);
         continue;
       }
       if (game.lockedUntil > now) {
-        player.computerState = { name: "next", observedPlayCount: game.playCount };
+        player.computerState = computerState("settling", game, { waitUntil: game.lockedUntil });
         continue;
       }
       if (now >= player.computerState.actionAt) {
         const rang = performRingBell(game, player.clientId, { now });
         player.computerState = rang.ok && game.lockedUntil > now
-          ? { name: "settling", waitUntil: game.lockedUntil, observedPlayCount: game.playCount }
-          : { name: "next", observedPlayCount: game.playCount };
+          ? computerState("settling", game, { waitUntil: game.lockedUntil })
+          : computerState("next", game);
         if (rang.ok) {
           result.changed = true;
           result.rang = true;
@@ -732,19 +783,25 @@ function advanceComputerPlayers(game, state, now = Date.now()) {
 
     if (stateName === "settling") {
       if (now >= (player.computerState.waitUntil || 0)) {
-        player.computerState = { name: "next", observedPlayCount: game.playCount };
+        player.computerState = computerState("next", game);
       }
       continue;
     }
 
     if (stateName === "next") {
-      player.computerState = {
-        name: canComputerPlay(game, player, now) ? "play" : "wait",
-        observedPlayCount: game.playCount,
-      };
+      player.computerState = computerState(canComputerPlay(game, player, now) ? "play" : "wait", game);
     }
   }
   return result;
+}
+
+function computerState(name, game, extra = {}) {
+  return {
+    name,
+    observedPlayCount: game.playCount,
+    observedBellCount: game.bellCount,
+    ...extra,
+  };
 }
 
 function tableHasDisplayCards(game) {
@@ -831,11 +888,11 @@ function updateLoadingProgress(player, input = {}) {
 
 function maybeReturnToWaiting(room, game, state, now = Date.now()) {
   if (game.status !== "finished") return false;
-  const connectedIds = game.players
-    .filter((player) => player.connected !== false && !player.exited)
+  const connectedHumanIds = game.players
+    .filter((player) => !player.isComputer && player.connected !== false && !player.exited)
     .map((player) => player.clientId);
-  const validVotes = game.continueVotes.filter((clientId) => connectedIds.includes(clientId));
-  const threshold = Math.max(1, Math.floor(connectedIds.length / 2) + 1);
+  const validVotes = game.continueVotes.filter((clientId) => connectedHumanIds.includes(clientId));
+  const threshold = Math.max(1, Math.floor(connectedHumanIds.length / 2) + 1);
 
   if (!game.continueReturnAt) {
     if (validVotes.length < threshold) return false;
@@ -844,15 +901,18 @@ function maybeReturnToWaiting(room, game, state, now = Date.now()) {
     return true;
   }
 
-  if (now < game.continueReturnAt && validVotes.length < connectedIds.length) return false;
+  if (now < game.continueReturnAt && validVotes.length < connectedHumanIds.length) return false;
 
   game.players.forEach((gamePlayer) => {
-    if (!validVotes.includes(gamePlayer.clientId)) {
+    if (!gamePlayer.isComputer && !validVotes.includes(gamePlayer.clientId)) {
       const player = state.players.get(gamePlayer.clientId);
       if (player?.currentRoomId === room.id) player.currentRoomId = null;
     }
   });
-  room.players = validVotes.filter((clientId) => state.players.has(clientId));
+  const computerIds = game.players
+    .filter((player) => player.isComputer && !player.exited && state.players.has(player.clientId))
+    .map((player) => player.clientId);
+  room.players = [...validVotes.filter((clientId) => state.players.has(clientId)), ...computerIds];
   room.players.forEach((clientId) => {
     const player = state.players.get(clientId);
     if (player) player.currentRoomId = room.id;
@@ -970,7 +1030,13 @@ function updateComputerDefeatStats(data, summary) {
       stats.defeatedComputers = stats.defeatedComputers || {};
       computers.forEach((computer) => {
         if (entry.rank < computer.rank) {
-          stats.defeatedComputers[computer.computerId] = (stats.defeatedComputers[computer.computerId] || 0) + 1;
+          if (computer.computerId === GOD_COMPUTER_ID && Number(entry.finalDrawCount || 0) < 3) return;
+          const previous = stats.defeatedComputers[computer.computerId] || 0;
+          stats.defeatedComputers[computer.computerId] = previous + 1;
+          if (computer.computerId === GOD_COMPUTER_ID && previous === 0) {
+            stats.godDefeatedAt = summary.at;
+            stats.godRewardGameId = summary.gameId;
+          }
         }
       });
     });
@@ -1204,19 +1270,46 @@ function upsertPlayerFromUser(state, user, ip) {
   return player;
 }
 
-function publicPlayer(player) {
+function publicPlayer(player, data = null) {
   if (!player) return null;
+  const isComputer = Boolean(player.isComputer);
+  const statsId = player.statsId || player.clientId;
   return {
     clientId: player.clientId,
     username: player.username,
-    isComputer: Boolean(player.isComputer),
+    isComputer,
     computerId: player.computerId || null,
-    statsId: player.statsId || player.clientId,
+    statsId,
+    godSlayer: godSlayerForStatsId(data, statsId, isComputer),
+    godRewardGameId: godRewardGameIdForStatsId(data, statsId, isComputer),
     connected: player.connected !== false,
     currentRoomId: player.currentRoomId || null,
     joinedAt: player.joinedAt,
     lastSeenAt: player.lastSeenAt,
   };
+}
+
+function publicGameFor(game, data) {
+  const out = publicGame(game);
+  const byId = new Map(out.players.map((player) => [player.clientId, player]));
+  out.players = out.players.map((player) => ({
+    ...player,
+    godSlayer: godSlayerForStatsId(data, player.statsId || player.clientId, player.isComputer),
+  }));
+  if (out.resultInfo?.players) {
+    out.resultInfo.players = out.resultInfo.players.map((player) => {
+      const gamePlayer = byId.get(player.clientId);
+      const isComputer = Boolean(gamePlayer?.isComputer);
+      const statsId = gamePlayer?.statsId || player.clientId;
+      return {
+        ...player,
+        isComputer,
+        statsId,
+        godSlayer: godSlayerForStatsId(data, statsId, isComputer),
+      };
+    });
+  }
+  return out;
 }
 
 function findUserByUsername(data, username) {
@@ -1265,6 +1358,8 @@ function ensureStats(data, clientId, username = "玩家") {
       isComputer: false,
       computerId: null,
       defeatedComputers: {},
+      godRewardGameId: null,
+      godDefeatedAt: null,
       history: [],
     };
   }
@@ -1286,6 +1381,8 @@ function profileFor(clientId, data) {
     isComputer: false,
     computerId: null,
     defeatedComputers: {},
+    godRewardGameId: null,
+    godDefeatedAt: null,
     history: [],
   };
   return enrichStats(stats);
@@ -1304,12 +1401,30 @@ function enrichStats(stats) {
   const rings = stats.rings || 0;
   return {
     ...stats,
+    godSlayer: godSlayerForStats(stats),
+    godRewardGameId: stats.godRewardGameId || null,
+    godDefeatedAt: stats.godDefeatedAt || null,
     winRate: gamesPlayed ? stats.wins / gamesPlayed : 0,
     correctRate: rings ? stats.correctRings / rings : 0,
     ringsPerGame: gamesPlayed ? rings / gamesPlayed : 0,
     wonCardsPerGame: gamesPlayed ? stats.wonCards / gamesPlayed : 0,
     averageRank: gamesPlayed ? stats.totalRank / gamesPlayed : 0,
   };
+}
+
+function godSlayerForStats(stats) {
+  return Boolean(!stats?.isComputer && Number(stats?.defeatedComputers?.[GOD_COMPUTER_ID] || 0) > 0);
+}
+
+function godSlayerForStatsId(data, statsId, isComputer = false) {
+  if (!data || isComputer) return false;
+  return godSlayerForStats(data.players?.[statsId]);
+}
+
+function godRewardGameIdForStatsId(data, statsId, isComputer = false) {
+  if (!data || isComputer) return null;
+  const stats = data.players?.[statsId];
+  return godSlayerForStats(stats) ? stats.godRewardGameId || null : null;
 }
 
 function snapshotFor(clientId, state, cardLibraries, computerPlayers = []) {
@@ -1324,12 +1439,12 @@ function snapshotFor(clientId, state, cardLibraries, computerPlayers = []) {
   const currentGame = currentRoom?.gameId ? state.games.get(currentRoom.gameId) : null;
   return {
     serverTime: Date.now(),
-    player: publicPlayer(player),
+    player: publicPlayer(player, state.data),
     cardLibraries: publicLibraries(cardLibraries),
     computerPlayers: publicComputerPlayers(computerPlayers),
     rooms,
     currentRoom: currentRoom ? roomSummary(currentRoom, state) : null,
-    currentGame: currentGame ? publicGame(currentGame) : null,
+    currentGame: currentGame ? publicGameFor(currentGame, state.data) : null,
   };
 }
 
@@ -1357,12 +1472,15 @@ function roomSummary(room, state) {
     players: room.players.map((clientId) => {
       const player = state.players.get(clientId);
       const gamePlayer = game?.players.find((item) => item.clientId === clientId);
+      const isComputer = Boolean(player?.isComputer || gamePlayer?.isComputer);
+      const statsId = player?.statsId || gamePlayer?.statsId || clientId;
       return {
         clientId,
         username: player?.username || gamePlayer?.username || "玩家",
-        isComputer: Boolean(player?.isComputer || gamePlayer?.isComputer),
+        isComputer,
         computerId: player?.computerId || gamePlayer?.computerId || null,
-        statsId: player?.statsId || gamePlayer?.statsId || clientId,
+        statsId,
+        godSlayer: godSlayerForStatsId(state.data, statsId, isComputer),
         connected: gamePlayer ? gamePlayer.connected : player?.connected !== false,
         eliminated: gamePlayer?.eliminated || false,
         ready: gamePlayer?.ready || false,

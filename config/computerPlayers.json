@@ -19,8 +19,8 @@
       "playDelayStdSeconds": 0.5,
       "reactionMeanSeconds": 1,
       "reactionStdSeconds": 0.2,
-      "matchDetectionProbability": 0.55,
-      "falseRingProbability": 0.3
+      "matchDetectionProbability": 0.3,
+      "falseRingProbability": 0.25
     },
     {
       "id": "computer_normal",
@@ -54,6 +54,17 @@
       "reactionStdSeconds": 0.5,
       "matchDetectionProbability": 0.97,
       "falseRingProbability": 0.01
+    },
+    {
+      "id": "computer_god",
+      "name": "GOD",
+      "description": "帧封相对之神，如果你能赢他至少3张牌，会有神秘的惊喜等着你。",
+      "playDelayMeanSeconds": 1.5,
+      "playDelayStdSeconds": 0,
+      "reactionMeanSeconds": 0.4,
+      "reactionStdSeconds": 0.1,
+      "matchDetectionProbability": 0.98,
+      "falseRingProbability": 0.0005
     }
   ]
 }

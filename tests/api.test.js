@@ -205,7 +205,8 @@ test("API supports computers, start votes, chat, card viewer, PMV index, and com
     const bootstrap = await request(base, "GET", "/api/bootstrap");
     const libraryId = bootstrap.cardLibraries[0].id;
     const computers = await request(base, "GET", "/api/computer-players");
-    assert.equal(computers.players.length, 5);
+    assert.ok(computers.players.length >= 6);
+    assert.ok(computers.players.some((computer) => computer.id === "computer_god"));
 
     const p1 = await register(base, "Human 1");
     const created = await request(base, "POST", "/api/rooms", payload(p1, {
@@ -267,6 +268,232 @@ test("API supports computers, start votes, chat, card viewer, PMV index, and com
     assert.equal(profile.profile.defeatedComputers[computers.players[0].id], 1);
     const leaderboard = await request(base, "GET", "/api/leaderboard");
     assert.ok(leaderboard.players.some((player) => player.isComputer && player.computerId === computers.players[0].id));
+  } finally {
+    await close(server);
+  }
+});
+
+test("continue votes after results ignore computer players", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const computers = await request(base, "GET", "/api/computer-players");
+    const p1 = await register(base, "Continue Human");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 2, maxPlayers: 4, isPublic: true, libraryIds },
+    }));
+    await request(base, "POST", `/api/rooms/${created.room.id}/add-computer`, payload(p1, {
+      computerId: computers.players[0].id,
+    }));
+    const started = await request(base, "POST", `/api/rooms/${created.room.id}/start`, payload(p1));
+    await loadingProgress(base, created.room.id, p1, 1, 1, true);
+
+    const game = state.games.get(started.game.id);
+    const room = state.rooms.get(created.room.id);
+    game.status = "finished";
+    game.winnerId = p1.clientId;
+    game.finishedAt = Date.now();
+    game.continueVotes = [];
+    game.continueCountdownStartedAt = null;
+    game.continueReturnAt = null;
+    room.status = "finished";
+
+    await request(base, "POST", `/api/games/${game.id}/continue`, payload(p1));
+
+    assert.deepEqual(game.continueVotes, [p1.clientId]);
+    assert.ok(game.continueReturnAt, "one connected human should be enough to start continue countdown");
+  } finally {
+    await close(server);
+  }
+});
+
+test("loading room kicks disconnected players after ten seconds and returns to waiting if too small", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const p1 = await register(base, "Loading Host");
+    const p2 = await register(base, "Loading Guest");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 2, maxPlayers: 4, isPublic: true, libraryIds },
+    }));
+    await request(base, "POST", `/api/rooms/${created.room.id}/join`, payload(p2));
+    const started = await request(base, "POST", `/api/rooms/${created.room.id}/start`, payload(p1));
+
+    const game = state.games.get(started.game.id);
+    const room = state.rooms.get(created.room.id);
+    const guest = state.players.get(p2.clientId);
+    guest.connected = false;
+    guest.lastSeenAt = Date.now() - 11000;
+    const gameGuest = game.players.find((player) => player.clientId === p2.clientId);
+    gameGuest.connected = false;
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    assert.equal(room.players.includes(p2.clientId), false);
+    assert.equal(state.players.get(p2.clientId).currentRoomId, null);
+    assert.equal(room.status, "waiting");
+    assert.equal(room.gameId, null);
+    assert.equal(game.status, "aborted");
+    assert.deepEqual(room.players, [p1.clientId]);
+  } finally {
+    await close(server);
+  }
+});
+
+test("computer play and ring waits stop when another bell starts settling", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const computers = await request(base, "GET", "/api/computer-players");
+    const p1 = await register(base, "FSM Host");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 2, maxPlayers: 4, isPublic: true, libraryIds },
+    }));
+    await request(base, "POST", `/api/rooms/${created.room.id}/add-computer`, payload(p1, {
+      computerId: computers.players[0].id,
+    }));
+    await request(base, "POST", `/api/rooms/${created.room.id}/add-computer`, payload(p1, {
+      computerId: computers.players[1].id,
+    }));
+    const started = await request(base, "POST", `/api/rooms/${created.room.id}/start`, payload(p1));
+    await loadingProgress(base, created.room.id, p1, 1, 1, true);
+
+    const game = state.games.get(started.game.id);
+    const computerPlayers = game.players.filter((player) => player.isComputer);
+    const now = Date.now();
+    game.lockedUntil = now + 1500;
+    game.bellCount += 1;
+    computerPlayers[0].computerState = {
+      name: "play",
+      observedPlayCount: game.playCount,
+      observedBellCount: game.bellCount - 1,
+      actionAt: now + 5000,
+    };
+    computerPlayers[1].computerState = {
+      name: "ring",
+      observedPlayCount: game.playCount,
+      observedBellCount: game.bellCount - 1,
+      actionAt: now + 5000,
+    };
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    assert.equal(computerPlayers[0].computerState.name, "settling");
+    assert.equal(computerPlayers[1].computerState.name, "settling");
+    assert.equal(computerPlayers[0].computerState.waitUntil, game.lockedUntil);
+    assert.equal(computerPlayers[1].computerState.waitUntil, game.lockedUntil);
+  } finally {
+    await close(server);
+  }
+});
+
+test("defeating GOD with fewer than three unplayed cards does not grant god reward", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const computers = await request(base, "GET", "/api/computer-players");
+    const god = computers.players.find((computer) => computer.id === "computer_god");
+    assert.ok(god);
+    const p1 = await register(base, "Almost God Slayer");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 2, maxPlayers: 4, isPublic: true, libraryIds },
+    }));
+    await request(base, "POST", `/api/rooms/${created.room.id}/add-computer`, payload(p1, {
+      computerId: god.id,
+    }));
+    const started = await request(base, "POST", `/api/rooms/${created.room.id}/start`, payload(p1));
+    await loadingProgress(base, created.room.id, p1, 1, 1, true);
+
+    const game = state.games.get(started.game.id);
+    const humanIndex = game.players.findIndex((player) => player.clientId === p1.clientId);
+    const godIndex = game.players.findIndex((player) => player.computerId === "computer_god");
+    game.players[godIndex].eliminated = true;
+    game.players[godIndex].rank = 2;
+    game.eliminatedOrder = [game.players[godIndex].clientId];
+    game.players[humanIndex].drawPile = game.players[humanIndex].drawPile.slice(0, 3);
+    game.turnIndex = humanIndex;
+    game.turnAvailableAt = Date.now() - 1;
+    game.turnDeadlineAt = Date.now() + 1000;
+    const finished = await request(base, "POST", `/api/games/${game.id}/play-card`, payload(p1));
+    assert.equal(finished.game.status, "finished");
+    assert.equal(state.data.matchHistory[0].players.find((player) => player.clientId === p1.clientId).finalDrawCount, 2);
+
+    const profile = await request(base, "GET", `/api/profile/${p1.clientId}?token=${encodeURIComponent(p1.token)}`);
+    assert.equal(profile.profile.defeatedComputers.computer_god || 0, 0);
+    assert.equal(profile.profile.godSlayer, false);
+    assert.equal(profile.profile.godRewardGameId, null);
+    const winnerSnapshot = await request(base, "GET", `/api/bootstrap?token=${encodeURIComponent(p1.token)}`);
+    assert.equal(winnerSnapshot.player.godSlayer, false);
+    assert.equal(winnerSnapshot.player.godRewardGameId, null);
+  } finally {
+    await close(server);
+  }
+});
+
+test("first human defeat of GOD with three unplayed cards adds god badge and reward marker", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const computers = await request(base, "GET", "/api/computer-players");
+    const god = computers.players.find((computer) => computer.id === "computer_god");
+    assert.ok(god);
+    const p1 = await register(base, "God Slayer");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 2, maxPlayers: 4, isPublic: true, libraryIds },
+    }));
+    await request(base, "POST", `/api/rooms/${created.room.id}/add-computer`, payload(p1, {
+      computerId: god.id,
+    }));
+    const started = await request(base, "POST", `/api/rooms/${created.room.id}/start`, payload(p1));
+    await loadingProgress(base, created.room.id, p1, 1, 1, true);
+
+    const game = state.games.get(started.game.id);
+    const humanIndex = game.players.findIndex((player) => player.clientId === p1.clientId);
+    const godIndex = game.players.findIndex((player) => player.computerId === "computer_god");
+    game.players[godIndex].eliminated = true;
+    game.players[godIndex].rank = 2;
+    game.eliminatedOrder = [game.players[godIndex].clientId];
+    game.players[humanIndex].drawPile = game.players[humanIndex].drawPile.slice(0, 4);
+    game.turnIndex = humanIndex;
+    game.turnAvailableAt = Date.now() - 1;
+    game.turnDeadlineAt = Date.now() + 1000;
+    const finished = await request(base, "POST", `/api/games/${game.id}/play-card`, payload(p1));
+    assert.equal(finished.game.status, "finished");
+    assert.equal(state.data.matchHistory[0].players.find((player) => player.clientId === p1.clientId).finalDrawCount, 3);
+
+    const profile = await request(base, "GET", `/api/profile/${p1.clientId}?token=${encodeURIComponent(p1.token)}`);
+    assert.equal(profile.profile.defeatedComputers.computer_god, 1);
+    assert.equal(profile.profile.godSlayer, true);
+    assert.equal(profile.profile.godRewardGameId, game.id);
+    const winnerSnapshot = await request(base, "GET", `/api/bootstrap?token=${encodeURIComponent(p1.token)}`);
+    assert.equal(winnerSnapshot.player.godSlayer, true);
+    assert.equal(winnerSnapshot.player.godRewardGameId, game.id);
+    assert.equal(winnerSnapshot.currentRoom.players.find((player) => player.clientId === p1.clientId).godSlayer, true);
   } finally {
     await close(server);
   }
