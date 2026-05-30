@@ -503,7 +503,16 @@ function maybeReturnToWaiting(room, game, state, now = Date.now()) {
 function resetFinishedRoomToWaiting(room, state) {
   const game = room.gameId ? state.games.get(room.gameId) : null;
   if (room.status !== "finished" || game?.status !== "finished") return false;
-  room.players = [...new Set(room.players.filter((clientId) => state.players.has(clientId)))];
+  const remainingGamePlayers = new Set(game.players
+    .filter((player) => !player.exited)
+    .map((player) => player.clientId));
+  game.players
+    .filter((player) => player.exited)
+    .forEach((gamePlayer) => {
+      const player = state.players.get(gamePlayer.clientId);
+      if (player?.currentRoomId === room.id) player.currentRoomId = null;
+    });
+  room.players = [...new Set(room.players.filter((clientId) => state.players.has(clientId) && remainingGamePlayers.has(clientId)))];
   room.spectators = [];
   room.status = "waiting";
   room.gameId = null;
@@ -901,8 +910,12 @@ function enrichStats(stats) {
 function snapshotFor(clientId, state, cardLibraries) {
   const player = state.players.get(clientId) || null;
   const rooms = [...state.rooms.values()].map((room) => roomSummary(room, state));
-  const assignedRoom = player?.currentRoomId ? state.rooms.get(player.currentRoomId) : null;
-  const currentRoom = assignedRoom || [...state.rooms.values()].find((room) => room.players.includes(clientId) || room.spectators.includes(clientId));
+  let assignedRoom = player?.currentRoomId ? state.rooms.get(player.currentRoomId) : null;
+  if (player?.currentRoomId && (!assignedRoom || !roomHasClient(assignedRoom, clientId))) {
+    player.currentRoomId = null;
+    assignedRoom = null;
+  }
+  const currentRoom = assignedRoom || [...state.rooms.values()].find((room) => roomHasClient(room, clientId));
   const currentGame = currentRoom?.gameId ? state.games.get(currentRoom.gameId) : null;
   return {
     serverTime: Date.now(),
@@ -912,6 +925,10 @@ function snapshotFor(clientId, state, cardLibraries) {
     currentRoom: currentRoom ? roomSummary(currentRoom, state) : null,
     currentGame: currentGame ? publicGame(currentGame) : null,
   };
+}
+
+function roomHasClient(room, clientId) {
+  return room.players.includes(clientId) || room.spectators.includes(clientId);
 }
 
 function roomSummary(room, state) {
