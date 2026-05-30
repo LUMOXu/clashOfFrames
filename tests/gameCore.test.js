@@ -6,6 +6,7 @@ const {
   normalizeSettings,
   dealCards,
   createGame,
+  publicGame,
   startPlaying,
   findCurrentMatch,
   setTurnTiming,
@@ -175,4 +176,51 @@ test("finished game summary includes winner and bell totals", () => {
   assert.equal(summary.winnerId, "a");
   assert.equal(summary.bellCount, 3);
   assert.equal(summary.averageRoundLength, game.playCount / 2);
+});
+
+test("public game state keeps table piles compact", () => {
+  const game = sampleGame();
+  game.players[0].displayPile = Array.from({ length: 20 }, (_, index) => ({
+    ...sampleCard(`shown-${index}`, index),
+    playedSeq: index + 1,
+    playedBy: "a",
+  }));
+
+  const snapshot = publicGame(game);
+
+  assert.equal(snapshot.players[0].displayCount, 20);
+  assert.equal(snapshot.players[0].displayPile.length, 1);
+  assert.equal(snapshot.players[0].displayPile[0].id, "shown-19");
+});
+
+test("public success animation only includes visible card details", () => {
+  const game = sampleGame();
+  const cards = Array.from({ length: 20 }, (_, index) => ({
+    ...sampleCard(`anim-${index}`, index),
+    playedSeq: index + 1,
+    playedBy: "a",
+  }));
+  game.lastAnimation = {
+    id: "anim-test",
+    type: "success",
+    by: "a",
+    username: "A",
+    targetPlayerId: "a",
+    startedAt: 2000,
+    highlightMs: 3000,
+    moveMs: 1200,
+    durationMs: 4200,
+    pmvId: 1,
+    pmvName: "PMV 1",
+    matchCardIds: ["anim-19"],
+    piles: [{ playerId: "a", username: "A", cards }],
+  };
+
+  const snapshot = publicGame(game);
+  const pile = snapshot.lastAnimation.piles[0];
+
+  assert.equal(pile.cardCount, 20);
+  assert.equal(pile.cards.length, 8);
+  assert.equal(pile.cards[0].id, "anim-12");
+  assert.equal(pile.cards[7].id, "anim-19");
 });

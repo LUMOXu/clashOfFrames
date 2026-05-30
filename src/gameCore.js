@@ -18,6 +18,9 @@ const SUCCESS_HIGHLIGHT_MS = 3000;
 const SUCCESS_MOVE_MS = 1200;
 const FAIL_MOVE_MS = 900;
 const FAIL_STAGGER_MS = 300;
+const PUBLIC_LOG_LIMIT = 40;
+const PUBLIC_DISPLAY_CARD_LIMIT = 1;
+const PUBLIC_ANIMATION_CARDS_PER_PILE = 8;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -165,17 +168,23 @@ function publicFaceCard(card) {
 function publicAnimation(animation) {
   if (!animation) return null;
   if (animation.type === "success") {
+    const out = { ...animation };
+    delete out.piles;
     return {
-      ...clone(animation),
+      ...out,
       piles: animation.piles.map((pile) => ({
-        ...pile,
-        cards: pile.cards.map(publicFaceCard),
+        playerId: pile.playerId,
+        username: pile.username,
+        cardCount: pile.cards.length,
+        cards: pile.cards.slice(-PUBLIC_ANIMATION_CARDS_PER_PILE).map(publicFaceCard),
       })),
     };
   }
   if (animation.type === "fail") {
+    const out = { ...animation };
+    delete out.transfers;
     return {
-      ...clone(animation),
+      ...out,
       transfers: animation.transfers.map((transfer) => ({
         ...transfer,
         card: publicBackCard(transfer.card),
@@ -185,17 +194,51 @@ function publicAnimation(animation) {
   return clone(animation);
 }
 
+function publicTopEntry(entry) {
+  return {
+    ...entry,
+    card: publicFaceCard(entry.card),
+  };
+}
+
+function publicMatch(match) {
+  if (!match) return null;
+  if (!Array.isArray(match.cards)) return { ...match };
+  return {
+    ...match,
+    cards: match.cards.map(publicTopEntry),
+  };
+}
+
 function publicGame(game) {
   return {
-    ...clone(game),
-    logs: game.logs.slice(0, 80).map(clone),
+    ...game,
+    settings: clone(game.settings),
+    spectators: game.spectators.slice(),
+    preLastTopCards: (game.preLastTopCards || []).map(publicTopEntry),
+    lastMatch: publicMatch(game.lastMatch),
+    logs: game.logs.slice(0, PUBLIC_LOG_LIMIT).map(clone),
     lastAnimation: publicAnimation(game.lastAnimation),
     players: game.players.map((player) => ({
-      ...clone(player),
+      clientId: player.clientId,
+      username: player.username,
+      connected: player.connected,
+      eliminated: player.eliminated,
+      exited: player.exited,
+      ready: player.ready,
+      loadingLoaded: player.loadingLoaded,
+      loadingTotal: player.loadingTotal,
+      loadingProgress: player.loadingProgress,
+      loadingCached: player.loadingCached,
+      loadingStartedAt: player.loadingStartedAt,
+      loadingFinishedAt: player.loadingFinishedAt,
+      eliminatedAt: player.eliminatedAt,
+      rank: player.rank,
+      stats: clone(player.stats),
       drawCount: player.drawPile.length,
       displayCount: player.displayPile.length,
       drawPile: player.drawPile.slice(0, 8).map(publicBackCard),
-      displayPile: player.displayPile.map(publicFaceCard),
+      displayPile: player.displayPile.slice(-PUBLIC_DISPLAY_CARD_LIMIT).map(publicFaceCard),
     })),
   };
 }

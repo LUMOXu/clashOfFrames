@@ -73,6 +73,8 @@ test("API smoke: auth, assets, room flow, loading, and play", async () => {
     assert.equal(publicBootstrap.player, null);
     assert.ok(publicBootstrap.cardLibraries.length >= 1);
     assert.equal("cards" in publicBootstrap.cardLibraries[0], false);
+    assert.equal("leaderboard" in publicBootstrap, false);
+    assert.equal("profile" in publicBootstrap, false);
     const libraryIds = publicBootstrap.cardLibraries.map((library) => library.id);
 
     const p1 = await register(base, "Player 1");
@@ -142,6 +144,66 @@ test("API smoke: auth, assets, room flow, loading, and play", async () => {
     const played = await request(base, "POST", `/api/games/${loaded.game.id}/play-card`, payload(authById.get(current)));
     assert.equal(played.game.playCount, 1);
     assert.ok(played.game.players.some((player) => player.displayPile.some((card) => card.imageUrl)));
+  } finally {
+    await close(server);
+  }
+});
+
+test("loading progress is monotonic and finished rooms can be reused or disbanded", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const libraryIds = bootstrap.cardLibraries.map((library) => library.id);
+    const p1 = await register(base, "Host");
+    const p2 = await register(base, "Player B");
+    const p3 = await register(base, "Player C");
+    const p4 = await register(base, "Fresh Joiner");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: { minPlayers: 3, maxPlayers: 8, isPublic: true, libraryIds },
+    }));
+    const roomId = created.room.id;
+    await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p2));
+    await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p3));
+    const started = await request(base, "POST", `/api/rooms/${roomId}/start`, payload(p1));
+    const total = 10;
+
+    await loadingProgress(base, roomId, p1, total, total, true);
+    const stale = await loadingProgress(base, roomId, p1, 2, total, false);
+    const stalePlayer = stale.room.players.find((player) => player.clientId === p1.clientId);
+    assert.equal(stalePlayer.ready, true);
+    assert.equal(stalePlayer.loadingLoaded, total);
+    assert.equal(stalePlayer.loadingProgress, 100);
+
+    await loadingProgress(base, roomId, p2, total, total, true);
+    await loadingProgress(base, roomId, p3, total, total, true);
+
+    const game = state.games.get(started.game.id);
+    const room = state.rooms.get(roomId);
+    game.status = "finished";
+    game.winnerId = p1.clientId;
+    game.finishedAt = Date.now();
+    room.status = "finished";
+
+    const settings = await request(base, "POST", `/api/rooms/${roomId}/settings`, payload(p1, {
+      settings: { libraryIds, allowEmptyBell: true, randomBacks: false, conflictResolution: true, disconnectProtection: true },
+    }));
+    assert.equal(settings.room.status, "waiting");
+    assert.equal(settings.room.gameId, null);
+
+    const joined = await request(base, "POST", `/api/rooms/${roomId}/join`, payload(p4));
+    assert.equal(joined.spectator, false);
+    assert.equal(joined.room.players.some((player) => player.clientId === p4.clientId), true);
+
+    await request(base, "POST", `/api/rooms/${roomId}/disband`, payload(p1));
+    const afterDisband = await request(base, "GET", `/api/bootstrap?token=${encodeURIComponent(p4.token)}`);
+    assert.equal(afterDisband.currentRoom, null);
+    assert.equal(afterDisband.rooms.some((item) => item.id === roomId), false);
+    const missing = await requestFailure(base, "POST", `/api/rooms/${roomId}/join`, payload(p4));
+    assert.match(missing.error, /房间不存在/);
   } finally {
     await close(server);
   }

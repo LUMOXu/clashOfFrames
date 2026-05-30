@@ -4,6 +4,10 @@ const app = {
   token: localStorage.getItem("cof.token") || "",
   clientId: "",
   snapshot: null,
+  profile: null,
+  leaderboard: null,
+  profileLoading: false,
+  leaderboardLoading: false,
   route: { name: "home" },
   message: "",
   toast: null,
@@ -14,6 +18,9 @@ const app = {
     matches: { key: "playCount", dir: "desc" },
   },
   eventSource: null,
+  refreshInFlight: null,
+  refreshQueued: false,
+  stateRefreshTimer: null,
   countdownTimer: null,
 };
 
@@ -34,11 +41,18 @@ async function init() {
 
 async function refresh() {
   const query = app.token ? `?token=${encodeURIComponent(app.token)}` : "";
+  const previousClientId = app.clientId;
   app.snapshot = await getJson(`/api/bootstrap${query}`);
   if (app.snapshot.player) {
     app.clientId = app.snapshot.player.clientId;
+    if (previousClientId && previousClientId !== app.clientId) {
+      app.profile = null;
+      app.leaderboard = null;
+    }
   } else {
     app.clientId = "";
+    app.profile = null;
+    app.leaderboard = null;
     if (app.token) {
       localStorage.removeItem("cof.token");
       app.token = "";
@@ -50,17 +64,49 @@ function connectEvents() {
   if (app.eventSource) app.eventSource.close();
   if (!app.token) return;
   app.eventSource = new EventSource(`/api/events?token=${encodeURIComponent(app.token)}`);
-  app.eventSource.addEventListener("state", async () => {
-    await refresh();
-    autoRouteFromState();
-    render();
-  });
+  app.eventSource.addEventListener("state", scheduleStateRefresh);
   app.eventSource.addEventListener("audio", (event) => {
     try {
       const data = JSON.parse(event.data);
       handleAudioEvent(data);
     } catch { /* ignore malformed audio events */ }
   });
+}
+
+function scheduleStateRefresh() {
+  if (app.stateRefreshTimer) return;
+  app.stateRefreshTimer = window.setTimeout(async () => {
+    app.stateRefreshTimer = null;
+    try {
+      await refreshLatest();
+      autoRouteFromState();
+      render();
+    } catch (error) {
+      showToast(humanizeError(error.message));
+    }
+  }, stateRefreshDelay());
+}
+
+async function refreshLatest() {
+  if (app.refreshInFlight) {
+    app.refreshQueued = true;
+    return app.refreshInFlight;
+  }
+  do {
+    app.refreshQueued = false;
+    try {
+      app.refreshInFlight = refresh();
+      await app.refreshInFlight;
+    } finally {
+      app.refreshInFlight = null;
+    }
+  } while (app.refreshQueued);
+  return app.snapshot;
+}
+
+function stateRefreshDelay() {
+  if (app.route.name === "game" || app.route.name === "loading") return 120;
+  return 500;
 }
 
 function autoRouteFromState() {
@@ -84,6 +130,8 @@ function autoRouteFromState() {
 function setRoute(name, params = {}) {
   app.route = { name, ...params };
   app.message = "";
+  if (name === "profile") app.profile = null;
+  if (name === "leaderboard") app.leaderboard = null;
   render();
 }
 
@@ -158,6 +206,7 @@ function renderAuth() {
           </form>
           <form id="register-form" class="grid">
             <h2>注册</h2>
+            <p class="auth-warning">这是一个娱乐项目，请不要用你常用的密码以防止数据泄露。</p>
             <label>用户名
               <input name="username" maxlength="24" required autocomplete="username">
             </label>
@@ -365,7 +414,7 @@ function renderWaiting() {
           `).join("")}
         </div>
         <div class="actions">
-          ${isHost ? `<button data-action="settings">房间设置</button><button data-action="transfer">转让房主</button><button class="primary" data-action="start-game" ${room.players.length < room.settings.minPlayers ? "disabled" : ""}>开始游戏</button>` : ""}
+          ${isHost ? `<button data-action="settings">房间设置</button><button data-action="transfer">转让房主</button><button class="primary" data-action="start-game" ${room.players.length < room.settings.minPlayers ? "disabled" : ""}>开始游戏</button><button class="danger" data-action="disband-room">解散房间</button>` : ""}
           <button data-action="home">回主菜单</button>
         </div>
       </section>
@@ -581,9 +630,9 @@ function playerLayouts(players) {
       player,
       x,
       y,
-      drawX: x - 5.6,
+      drawX: x - 8.2,
       drawY: y + 1.2,
-      displayX: x + 6.8,
+      displayX: x + 8.4,
       displayY: y + 1.2,
     };
   });
@@ -684,7 +733,11 @@ function renderResult(game) {
 }
 
 function renderProfile() {
-  const profile = app.snapshot.profile;
+  const profile = app.profile;
+  if (!profile) {
+    loadProfile();
+    return `<main class="page"><section class="panel"><h2>个人信息</h2><p class="muted">加载中...</p></section></main>`;
+  }
   const history = sortRows(profile.history || [], app.sorts.profile);
   return `
     <main class="page">
@@ -714,8 +767,13 @@ function renderProfile() {
 }
 
 function renderLeaderboard() {
-  const players = sortRows(app.snapshot.leaderboard.players, app.sorts.players);
-  const matches = sortRows(app.snapshot.leaderboard.matches, app.sorts.matches);
+  const leaderboard = app.leaderboard;
+  if (!leaderboard) {
+    loadLeaderboard();
+    return `<main class="page"><section class="panel"><h2>排行榜</h2><p class="muted">加载中...</p></section></main>`;
+  }
+  const players = sortRows(leaderboard.players, app.sorts.players);
+  const matches = sortRows(leaderboard.matches, app.sorts.matches);
   return `
     <main class="page">
       <section class="panel grid">
@@ -754,6 +812,34 @@ function renderTable(sortName, rows, columns) {
       </table>
     </div>
   `;
+}
+
+async function loadProfile() {
+  if (!app.clientId || app.profileLoading) return;
+  app.profileLoading = true;
+  try {
+    const result = await getJson(`/api/profile/${encodeURIComponent(app.clientId)}${authQuery()}`);
+    app.profile = result.profile;
+    if (app.route.name === "profile") render();
+  } catch (error) {
+    showToast(humanizeError(error.message));
+  } finally {
+    app.profileLoading = false;
+  }
+}
+
+async function loadLeaderboard() {
+  if (app.leaderboardLoading) return;
+  app.leaderboardLoading = true;
+  try {
+    const result = await getJson("/api/leaderboard");
+    app.leaderboard = result;
+    if (app.route.name === "leaderboard") render();
+  } catch (error) {
+    showToast(humanizeError(error.message));
+  } finally {
+    app.leaderboardLoading = false;
+  }
 }
 
 function renderLibraryPicker(libs, selected = null) {
@@ -809,6 +895,7 @@ async function handleClick(event) {
   if (action === "transfer") return setRoute("settings", { transfer: true });
   if (action === "go-current-room") return routeToCurrent();
   if (action === "leave-room") return leaveRoom();
+  if (action === "disband-room") return disbandRoom();
   if (action === "logout") return logout();
   if (action === "join-public-room") return joinRoom(button.dataset.room);
   if (action === "start-game") return startGame();
@@ -903,6 +990,8 @@ async function finishAuth(result) {
   app.token = result.token;
   localStorage.setItem("cof.token", app.token);
   app.clientId = result.player.clientId;
+  app.profile = null;
+  app.leaderboard = null;
   const passwordReset = result.passwordReset;
   await refresh();
   connectEvents();
@@ -1079,6 +1168,19 @@ async function leaveRoom() {
   }
 }
 
+async function disbandRoom() {
+  const room = app.snapshot.currentRoom;
+  if (!room) return;
+  if (!window.confirm("确定要解散这个房间吗？")) return;
+  try {
+    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/disband`, authPayload());
+    await refresh();
+    setRoute("home");
+  } catch (error) {
+    showToast(humanizeError(error.message));
+  }
+}
+
 async function safeAction(path) {
   try {
     await postJson(path, authPayload());
@@ -1107,14 +1209,17 @@ function scheduleCountdownRender() {
     app.countdownTimer = null;
   }
   const game = app.snapshot?.currentGame;
+  const now = Date.now();
+  const animationUntil = game?.lastAnimation ? game.lastAnimation.startedAt + game.lastAnimation.durationMs : 0;
   if (game?.status === "playing" && game.lockedUntil > Date.now()) {
+    const delay = animationUntil > now ? animationUntil - now + 80 : 1000;
     app.countdownTimer = window.setTimeout(() => {
       app.countdownTimer = null;
       render();
-    }, 1000);
+    }, delay);
     return;
   }
-  if (game?.status === "finished" && game.continueReturnAt && Date.now() < game.continueReturnAt) {
+  if (game?.status === "finished" && game.continueReturnAt && now < game.continueReturnAt) {
     app.countdownTimer = window.setTimeout(() => {
       app.countdownTimer = null;
       render();
@@ -1189,9 +1294,15 @@ function clearAuth(message = "") {
     app.eventSource.close();
     app.eventSource = null;
   }
+  if (app.stateRefreshTimer) {
+    window.clearTimeout(app.stateRefreshTimer);
+    app.stateRefreshTimer = null;
+  }
   localStorage.removeItem("cof.token");
   app.token = "";
   app.clientId = "";
+  app.profile = null;
+  app.leaderboard = null;
   app.route = { name: "auth" };
   app.message = message;
 }

@@ -207,6 +207,7 @@ async function handleApi(req, res, url, pathname, context) {
 
     if (action === "settings") {
       ensureHost(room, clientId);
+      resetFinishedRoomToWaiting(room, state);
       if (room.status !== "waiting") throw new Error("只有等待中房间可以修改设置。");
       room.settings = {
         ...room.settings,
@@ -217,6 +218,13 @@ async function handleApi(req, res, url, pathname, context) {
       };
       broadcast(state);
       return sendJson(res, 200, { room: roomSummary(room, state) });
+    }
+
+    if (action === "disband") {
+      ensureHost(room, clientId);
+      disbandRoom(room, state);
+      broadcast(state);
+      return sendJson(res, 200, { ok: true });
     }
 
     if (action === "transfer-host") {
@@ -378,6 +386,7 @@ function createRoom(state, player, settingsInput, cardLibraries) {
 }
 
 function joinRoom(room, player, state) {
+  resetFinishedRoomToWaiting(room, state);
   leaveOtherRooms(state, player.clientId, room.id);
   const game = room.gameId ? state.games.get(room.gameId) : null;
   if (room.status === "waiting") {
@@ -434,19 +443,23 @@ function advanceLoading(room, game, state) {
 }
 
 function updateLoadingProgress(player, input = {}) {
-  const total = Math.max(0, Number.parseInt(input.total, 10) || player.loadingTotal || 0);
-  const loaded = Math.max(0, Math.min(total || Number.MAX_SAFE_INTEGER, Number.parseInt(input.loaded, 10) || 0));
+  const previousTotal = Math.max(0, player.loadingTotal || 0);
+  const previousLoaded = Math.max(0, player.loadingLoaded || 0);
+  const reportedTotal = Math.max(0, Number.parseInt(input.total, 10) || 0);
+  const total = Math.max(previousTotal, reportedTotal);
+  const reportedLoaded = Math.max(0, Number.parseInt(input.loaded, 10) || 0);
+  const loaded = Math.max(previousLoaded, Math.min(total || Number.MAX_SAFE_INTEGER, reportedLoaded));
   player.loadingTotal = total;
   player.loadingLoaded = loaded;
-  player.loadingProgress = total > 0 ? Math.round((loaded / total) * 100) : 0;
-  player.loadingCached = Boolean(input.cached);
+  player.loadingProgress = Math.max(player.loadingProgress || 0, total > 0 ? Math.round((loaded / total) * 100) : 0);
+  player.loadingCached = player.loadingCached || Boolean(input.cached);
   player.loadingManifestKey = typeof input.manifestKey === "string" ? input.manifestKey.slice(0, 80) : player.loadingManifestKey || "";
   player.loadingStartedAt = player.loadingStartedAt || Date.now();
-  if (input.done || (total > 0 && loaded >= total)) {
+  if (player.ready || input.done || (total > 0 && loaded >= total)) {
     player.loadingLoaded = total || loaded;
     player.loadingProgress = 100;
     player.ready = true;
-    player.loadingFinishedAt = Date.now();
+    player.loadingFinishedAt = player.loadingFinishedAt || Date.now();
   }
 }
 
@@ -484,6 +497,48 @@ function maybeReturnToWaiting(room, game, state, now = Date.now()) {
   room.lastWinnerId = game.winnerId;
   migrateHost(room, state);
   return true;
+}
+
+function resetFinishedRoomToWaiting(room, state) {
+  const game = room.gameId ? state.games.get(room.gameId) : null;
+  if (room.status !== "finished" || game?.status !== "finished") return false;
+  room.players = [...new Set(room.players.filter((clientId) => state.players.has(clientId)))];
+  room.spectators = [];
+  room.status = "waiting";
+  room.gameId = null;
+  room.lastWinnerId = game.winnerId;
+  room.players.forEach((clientId) => {
+    const player = state.players.get(clientId);
+    if (player) player.currentRoomId = room.id;
+  });
+  migrateHost(room, state);
+  return true;
+}
+
+function deleteRoom(room, state) {
+  const game = room.gameId ? state.games.get(room.gameId) : null;
+  const ids = new Set([...room.players, ...room.spectators]);
+  ids.forEach((clientId) => {
+    const player = state.players.get(clientId);
+    if (player?.currentRoomId === room.id) player.currentRoomId = null;
+  });
+  if (game) {
+    if (game.status !== "finished") game.status = "aborted";
+    state.games.delete(game.id);
+  }
+  state.rooms.delete(room.id);
+}
+
+function disbandRoom(room, state) {
+  const game = room.gameId ? state.games.get(room.gameId) : null;
+  if (game) {
+    game.players.forEach((player) => {
+      player.connected = false;
+      player.exited = true;
+    });
+    game.spectators = [];
+  }
+  deleteRoom(room, state);
 }
 
 function finalizeGameIfNeeded(game, state, dataFile) {
@@ -562,15 +617,16 @@ function leaveOtherRooms(state, clientId, keepRoomId = null) {
     const game = room.gameId ? state.games.get(room.gameId) : null;
     if (game) {
       const gamePlayer = game.players.find((player) => player.clientId === clientId);
-      if (gamePlayer && game.status !== "finished") {
+      if (gamePlayer) {
         markConnection(game, clientId, false, { disconnectProtection: game.settings.disconnectProtection });
-        checkGameOver(game, Date.now());
+        gamePlayer.exited = true;
+        if (game.status !== "finished") checkGameOver(game, Date.now());
       }
       game.spectators = game.spectators.filter((id) => id !== clientId);
     }
 
-    if (room.players.length === 0 && room.status === "waiting") {
-      state.rooms.delete(roomId);
+    if (room.players.length === 0 && room.spectators.length === 0) {
+      deleteRoom(room, state);
       continue;
     }
 
@@ -590,12 +646,13 @@ function leaveRoom(room, clientId, state) {
 
   if (game) {
     const gamePlayer = game.players.find((player) => player.clientId === clientId);
-    if (gamePlayer && game.status !== "finished") {
+    if (gamePlayer) {
       markConnection(game, clientId, false, { disconnectProtection: game.settings.disconnectProtection });
-      if (game.players[game.turnIndex]?.clientId === clientId && game.settings.disconnectProtection) {
+      gamePlayer.exited = true;
+      if (game.status !== "finished" && game.players[game.turnIndex]?.clientId === clientId && game.settings.disconnectProtection) {
         setTurnTiming(game, Date.now(), 0);
       }
-      checkGameOver(game, Date.now());
+      if (game.status !== "finished") checkGameOver(game, Date.now());
     }
     game.spectators = game.spectators.filter((id) => id !== clientId);
   }
@@ -603,8 +660,8 @@ function leaveRoom(room, clientId, state) {
   const player = state.players.get(clientId);
   if (player?.currentRoomId === room.id) player.currentRoomId = null;
 
-  if (room.players.length === 0 && room.status === "waiting") {
-    state.rooms.delete(room.id);
+  if (room.players.length === 0 && room.spectators.length === 0) {
+    deleteRoom(room, state);
   } else if (room.hostId === clientId) {
     migrateHost(room, state);
   }
@@ -849,8 +906,6 @@ function snapshotFor(clientId, state, cardLibraries) {
     rooms,
     currentRoom: currentRoom ? roomSummary(currentRoom, state) : null,
     currentGame: currentGame ? publicGame(currentGame) : null,
-    profile: player ? profileFor(clientId, state.data) : null,
-    leaderboard: leaderboardFor(state.data),
   };
 }
 

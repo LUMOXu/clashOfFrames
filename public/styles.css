@@ -543,7 +543,7 @@ th button {
   justify-items: center;
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 180px;
+  width: 240px;
   z-index: 3;
 }
 
@@ -566,7 +566,7 @@ th button {
   border: 1px solid rgba(255, 255, 255, .12);
   border-radius: 999px;
   font-size: 13px;
-  max-width: 180px;
+  max-width: 220px;
   overflow: hidden;
   padding: 4px 9px;
   text-overflow: ellipsis;
@@ -576,7 +576,7 @@ th button {
 .piles {
   align-items: center;
   display: flex;
-  gap: 16px;
+  gap: 24px;
   justify-content: center;
 }
 
@@ -596,9 +596,10 @@ th button {
 .draw-stack {
   background: transparent;
   border: 0;
-  height: 110px;
+  height: 138px;
+  margin-left: -12px;
   padding: 0;
-  width: 78px;
+  width: 98px;
 }
 
 .draw-stack:disabled {
@@ -606,8 +607,8 @@ th button {
 }
 
 .display-stack {
-  height: 78px;
-  width: 126px;
+  height: 98px;
+  width: 158px;
 }
 
 .mini-card {
@@ -635,17 +636,20 @@ th button {
 }
 
 .fly-card {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   border: 2px solid rgba(255, 255, 255, .92);
   border-radius: 8px;
   box-shadow: 0 18px 34px rgba(0, 0, 0, .42);
-  height: 78px;
+  height: 98px;
   left: var(--from-left);
   object-fit: cover;
   opacity: 0;
   position: absolute;
   top: var(--from-top);
-  transform: translate(-50%, -50%) rotate(-3deg);
-  width: 126px;
+  transform: translate3d(-50%, -50%, 0) rotate(-3deg);
+  width: 158px;
+  will-change: transform, opacity;
 }
 
 .collect-card {
@@ -654,8 +658,8 @@ th button {
 
 .fail-card {
   animation: fail-card ease-in-out forwards;
-  height: 110px;
-  width: 78px;
+  height: 138px;
+  width: 98px;
 }
 
 .match-ghost {
@@ -667,19 +671,19 @@ th button {
     left: var(--from-left);
     opacity: 1;
     top: var(--from-top);
-    transform: translate(-50%, -50%) scale(1) rotate(-4deg);
+    transform: translate3d(-50%, -50%, 0) scale(1) rotate(-4deg);
   }
   70% {
     left: var(--from-left);
     opacity: 1;
     top: var(--from-top);
-    transform: translate(-50%, -50%) scale(1.05) rotate(3deg);
+    transform: translate3d(-50%, -50%, 0) scale(1.05) rotate(3deg);
   }
   100% {
     left: var(--to-left);
     opacity: 0;
     top: var(--to-top);
-    transform: translate(-50%, -50%) scale(.78) rotate(18deg);
+    transform: translate3d(-50%, -50%, 0) scale(.78) rotate(18deg);
   }
 }
 
@@ -688,13 +692,13 @@ th button {
     left: var(--from-left);
     opacity: 1;
     top: var(--from-top);
-    transform: translate(-50%, -50%) scale(1) rotate(-7deg);
+    transform: translate3d(-50%, -50%, 0) scale(1) rotate(-7deg);
   }
   100% {
     left: var(--to-left);
     opacity: 1;
     top: var(--to-top);
-    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+    transform: translate3d(-50%, -50%, 0) scale(1) rotate(0deg);
   }
 }
 
@@ -719,24 +723,25 @@ th button {
   }
 
   .station {
-    width: 132px;
+    width: 176px;
   }
 
   .piles {
-    gap: 8px;
+    gap: 14px;
   }
 
   .draw-stack {
-    height: 82px;
-    width: 58px;
+    height: 103px;
+    margin-left: -8px;
+    width: 73px;
   }
 
   .display-stack {
-    height: 58px;
-    width: 94px;
+    height: 73px;
+    width: 118px;
   }
 
   .table-area {
-    min-height: 390px;
+    min-height: 430px;
   }
 }
