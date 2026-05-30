@@ -20,6 +20,7 @@ const app = {
   eventSource: null,
   refreshInFlight: null,
   refreshQueued: false,
+  refreshRequestSeq: 0,
   stateRefreshTimer: null,
   countdownTimer: null,
   backdropRouteName: "",
@@ -41,9 +42,12 @@ async function init() {
 }
 
 async function refresh() {
+  const requestSeq = ++app.refreshRequestSeq;
   const query = app.token ? `?token=${encodeURIComponent(app.token)}` : "";
   const previousClientId = app.clientId;
-  app.snapshot = await getJson(`/api/bootstrap${query}`);
+  const snapshot = await getJson(`/api/bootstrap${query}`);
+  if (requestSeq < app.refreshRequestSeq) return app.snapshot;
+  app.snapshot = snapshot;
   if (app.snapshot.player) {
     app.clientId = app.snapshot.player.clientId;
     if (previousClientId && previousClientId !== app.clientId) {

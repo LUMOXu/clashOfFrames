@@ -686,6 +686,7 @@ th button {
 
 .collect-card {
   animation: collect-card ease-in-out forwards;
+  box-shadow: none;
 }
 
 .fail-card {
@@ -695,7 +696,8 @@ th button {
 }
 
 .match-ghost {
-  box-shadow: 0 0 0 5px rgba(114, 211, 125, .7), 0 18px 34px rgba(0, 0, 0, .42);
+  box-shadow: none;
+  outline: 5px solid rgba(114, 211, 125, .7);
 }
 
 @keyframes collect-card {

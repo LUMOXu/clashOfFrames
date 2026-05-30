@@ -223,7 +223,9 @@ test("public success animation only includes visible card details", () => {
   const pile = snapshot.lastAnimation.piles[0];
 
   assert.equal(pile.cardCount, 20);
-  assert.equal(pile.cards.length, 8);
-  assert.equal(pile.cards[0].id, "anim-12");
-  assert.equal(pile.cards[7].id, "anim-19");
+  assert.equal(pile.cards.length, 20);
+  assert.deepEqual(Object.keys(pile.cards[0]).sort(), ["id", "imageUrl", "playedSeq"].sort());
+  assert.equal(pile.cards[0].id, "anim-0");
+  assert.equal(pile.cards[19].id, "anim-19");
+  assert.equal(pile.cards[19].pmvId, 19);
 });

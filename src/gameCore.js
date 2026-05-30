@@ -19,7 +19,6 @@ const SUCCESS_MOVE_MS = 1200;
 const FAIL_MOVE_MS = 900;
 const FAIL_STAGGER_MS = 300;
 const PUBLIC_LOG_LIMIT = 40;
-const PUBLIC_ANIMATION_CARDS_PER_PILE = 8;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -184,7 +183,7 @@ function publicAnimation(animation) {
         playerId: pile.playerId,
         username: pile.username,
         cardCount: pile.cards.length,
-        cards: pile.cards.slice(-PUBLIC_ANIMATION_CARDS_PER_PILE).map(publicFaceCard),
+        cards: pile.cards.map((card, index) => publicStackFaceCard(card, index === pile.cards.length - 1)),
       })),
     };
   }
