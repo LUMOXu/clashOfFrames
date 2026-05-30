@@ -276,6 +276,7 @@ async function handleApi(req, res, url, pathname, context) {
       if (!result.ok) return sendJson(res, 409, { error: result.error });
       finalizeGameIfNeeded(game, state, dataFile);
       broadcast(state);
+      emitAudioEvent(state, "play-card", { roomId: game.roomId, gameId: game.id });
       return sendJson(res, 200, { game: publicGame(game) });
     }
 
@@ -284,6 +285,7 @@ async function handleApi(req, res, url, pathname, context) {
       if (!result.ok) return sendJson(res, 409, { error: result.error });
       finalizeGameIfNeeded(game, state, dataFile);
       broadcast(state);
+      emitAudioEvent(state, "ring-bell", { roomId: game.roomId, gameId: game.id });
       return sendJson(res, 200, { game: publicGame(game) });
     }
 
@@ -976,6 +978,15 @@ function sendJson(res, statusCode, payload) {
 
 function broadcast(state) {
   const payload = `event: state\ndata: ${JSON.stringify({ at: Date.now() })}\n\n`;
+  for (const streams of state.streams.values()) {
+    for (const res of streams) {
+      if (!res.destroyed) res.write(payload);
+    }
+  }
+}
+
+function emitAudioEvent(state, type, meta) {
+  const payload = `event: audio\ndata: ${JSON.stringify({ type, ...meta, at: Date.now() })}\n\n`;
   for (const streams of state.streams.values()) {
     for (const res of streams) {
       if (!res.destroyed) res.write(payload);

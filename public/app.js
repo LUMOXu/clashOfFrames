@@ -55,6 +55,12 @@ function connectEvents() {
     autoRouteFromState();
     render();
   });
+  app.eventSource.addEventListener("audio", (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      handleAudioEvent(data);
+    } catch { /* ignore malformed audio events */ }
+  });
 }
 
 function autoRouteFromState() {
@@ -1028,26 +1034,28 @@ function preloadImage(url) {
 async function playCard() {
   const game = app.snapshot.currentGame;
   if (!game) return;
-  const button = document.querySelector('button[data-action="play-card"]');
-  if (button && !button.disabled) {
-    sendCardAudio.currentTime = 0;
-    sendCardAudio.play().catch(() => {});
-  }
   await safeAction(`/api/games/${encodeURIComponent(game.id)}/play-card`);
 }
 
 const bellAudio = new Audio('/ding.wav');
+bellAudio.preload = 'auto';
 const sendCardAudio = new Audio('/sendcard.mp3');
+sendCardAudio.preload = 'auto';
+
+function handleAudioEvent(data) {
+  if (!app.snapshot.currentGame || app.snapshot.currentGame.roomId !== data.roomId) return;
+  if (data.type === 'ring-bell') {
+    bellAudio.currentTime = 0;
+    bellAudio.play().catch(() => {});
+  } else if (data.type === 'play-card') {
+    sendCardAudio.currentTime = 0;
+    sendCardAudio.play().catch(() => {});
+  }
+}
 
 async function ringBell() {
   const game = app.snapshot.currentGame;
   if (!game) return;
-  const button = document.querySelector('button[data-action="ring-bell"]');
-  const canRing = button && !button.disabled;
-  if (canRing) {
-    bellAudio.currentTime = 0;
-    bellAudio.play().catch(() => {});
-  }
   await safeAction(`/api/games/${encodeURIComponent(game.id)}/ring-bell`);
 }
 
