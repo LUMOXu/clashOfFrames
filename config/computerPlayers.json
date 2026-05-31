@@ -63,7 +63,7 @@
       "playDelayStdSeconds": 0,
       "reactionMeanSeconds": 0.4,
       "reactionStdSeconds": 0.1,
-      "matchDetectionProbability": 0.98,
+      "matchDetectionProbability": 0.99,
       "falseRingProbability": 0.0005
     }
   ]

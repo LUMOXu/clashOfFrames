@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Source Han Serif SC Intro";
+  src: url("/assets/fonts/source-han-serif-sc-intro.woff2") format("woff2");
+  font-weight: 700 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
   --menu-bg-image: url("/assets/bg1.jpg");
@@ -8,6 +16,7 @@
   --muted: #bfc7b7;
   --line: #46503f;
   --accent: #e6c45d;
+  --accent-intro: #baa1dc;
   --accent-2: #54c4a8;
   --danger: #ee6b72;
   --ok: #72d37d;
@@ -173,10 +182,10 @@ label {
 }
 
 .game-intro {
-  border-left: 4px solid var(--accent);
-  color: #f5e0a3;
-  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
-  font-size: clamp(22px, 3vw, 34px);
+  border-left: 4px solid var(--accent-intro);
+  color: var(--accent-intro);
+  font-family: "Source Han Serif SC Intro", "Microsoft YaHei", sans-serif;
+  font-size: clamp(18px, 3vw, 24px);
   font-weight: 800;
   line-height: 1.42;
   margin: 18px 0 0;
@@ -295,11 +304,13 @@ label {
 
 .god-name {
   color: #ff4d4d;
+  font-family: "Source Han Serif SC God Names", "Source Han Serif SC Intro", "Microsoft YaHei", sans-serif;
   font-weight: 900;
 }
 
 .god-slayer-name {
   color: #ffe79a;
+  font-family: "Source Han Serif SC God Names", "Source Han Serif SC Intro", "Microsoft YaHei", sans-serif;
   font-size: 1.14em;
   font-weight: 900;
 }

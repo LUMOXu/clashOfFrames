@@ -72,6 +72,8 @@ globalThis.__helpers = {
   filterPmvIndexRows: typeof filterPmvIndexRows === "function" ? filterPmvIndexRows : undefined,
   renderShell: typeof renderShell === "function" ? renderShell : undefined,
   renderTable: typeof renderTable === "function" ? renderTable : undefined,
+  godNameFontSubsetText: typeof godNameFontSubsetText === "function" ? godNameFontSubsetText : undefined,
+  syncGodNameFontSubset: typeof syncGodNameFontSubset === "function" ? syncGodNameFontSubset : undefined,
 };`, context);
   return context;
 }
@@ -263,6 +265,61 @@ test("table cells do not infer god slayer styling from matching numbers", () => 
   ]);
 
   assert.doesNotMatch(html, /<td><span class="god-slayer-name">1<\/span><\/td><td><span class="god-slayer-name">1<\/span><\/td>/);
+});
+
+test("god name font subset only uses highlighted name characters", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const root = {
+    querySelectorAll(selector) {
+      assert.equal(selector, ".god-name, .god-slayer-name");
+      return [
+        { textContent: "GOD" },
+        { textContent: "\u5c60\u795e1" },
+        { textContent: "\u5c60\u795e1" },
+      ];
+    },
+  };
+
+  assert.equal(context.__helpers.godNameFontSubsetText(root), "GOD\u5c60\u795e1");
+});
+
+test("god name font subset style points at the generated subset endpoint", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  let styleNode = null;
+  context.document.head = {
+    appendChild(node) {
+      styleNode = node;
+    },
+  };
+  context.document.createElement = (tagName) => ({
+    tagName,
+    id: "",
+    textContent: "",
+    remove() {
+      if (styleNode === this) styleNode = null;
+    },
+  });
+  context.document.querySelector = (selector) => selector === "#god-name-font-subset-style" ? styleNode : { innerHTML: "" };
+  const root = {
+    querySelectorAll() {
+      return [{ textContent: "GOD" }, { textContent: "\u5c60\u795e1" }];
+    },
+  };
+
+  context.__helpers.syncGodNameFontSubset(root);
+
+  assert.ok(styleNode);
+  assert.match(styleNode.textContent, /font-family: "Source Han Serif SC God Names"/);
+  const match = styleNode.textContent.match(/text=([^")]+)/);
+  assert.ok(match);
+  assert.equal(decodeURIComponent(match[1]), "GOD\u5c60\u795e1");
+});
+
+test("god name styles use the generated subset font family", () => {
+  const css = fs.readFileSync(path.join(__dirname, "..", "public", "styles.css"), "utf8");
+
+  assert.match(css, /\.god-name[\s\S]*font-family: "Source Han Serif SC God Names"/);
+  assert.match(css, /\.god-slayer-name[\s\S]*font-family: "Source Han Serif SC God Names"/);
 });
 
 test("chat render keeps the current draft through game refreshes", () => {

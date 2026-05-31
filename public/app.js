@@ -42,6 +42,8 @@ const app = {
 const RESULT_REPLAY_RATE = 20;
 const RESULT_CHART_COLORS = ["#f3d775", "#54c4a8", "#ee6b72", "#8ab6ff", "#c58cff", "#ffad66", "#72d37d", "#f08ec2"];
 const MAX_VISIBLE_TURN_COUNTDOWN_SECONDS = 8;
+const GOD_NAME_FONT_STYLE_ID = "god-name-font-subset-style";
+const GOD_NAME_FONT_MAX_CHARS = 512;
 
 document.addEventListener("DOMContentLoaded", init);
 document.addEventListener("click", handleClick);
@@ -184,6 +186,7 @@ function render() {
   app.rendering = true;
   root.innerHTML = content;
   app.rendering = false;
+  syncGodNameFontSubset(root);
   if (shouldRestoreChat) restoreChatFocus();
   if (shouldRestorePmvSearch) restorePmvSearchFocus();
   renderGodRewardModal();
@@ -211,6 +214,37 @@ function restoreChatFocus() {
   try {
     input.setSelectionRange(end, end);
   } catch { /* ignore unsupported input selection */ }
+}
+
+function syncGodNameFontSubset(root = document) {
+  const text = godNameFontSubsetText(root);
+  const existing = document.querySelector(`#${GOD_NAME_FONT_STYLE_ID}`);
+  if (!text) {
+    existing?.remove?.();
+    return;
+  }
+  const href = `/api/fonts/god-name-subset.woff2?text=${encodeURIComponent(text)}`;
+  const css = `@font-face { font-family: "Source Han Serif SC God Names"; src: url("${href}") format("woff2"); font-weight: 700 900; font-style: normal; font-display: swap; }`;
+  if (existing && existing.textContent === css) return;
+  const style = existing || document.createElement("style");
+  style.id = GOD_NAME_FONT_STYLE_ID;
+  style.textContent = css;
+  if (!existing) document.head.appendChild(style);
+}
+
+function godNameFontSubsetText(root = document) {
+  const seen = new Set();
+  const chars = [];
+  root?.querySelectorAll?.(".god-name, .god-slayer-name").forEach((node) => {
+    if (chars.length >= GOD_NAME_FONT_MAX_CHARS) return;
+    for (const char of String(node.textContent || "").normalize("NFC")) {
+      if (chars.length >= GOD_NAME_FONT_MAX_CHARS) break;
+      if (seen.has(char)) continue;
+      seen.add(char);
+      chars.push(char);
+    }
+  });
+  return chars.join("");
 }
 
 function renderGodRewardModal() {
@@ -1617,11 +1651,11 @@ function renderComputerPicker(computers) {
       <div class="computer-list">
         ${computers.map((computer) => `
           <label class="computer-row ${isGodComputer(computer) ? "god-computer" : ""}">
-            <span>
+            <div>
               <strong>${renderComputerName(computer)}</strong>
-              <span class="muted">${escapeHtml(computer.description || "")}</span>
+              <div class="muted">${escapeHtml(computer.description || "")}</div>
               ${renderComputerStats(computer)}
-            </span>
+            </div>
             <input name="computerIds" value="${escapeAttr(computer.id)}" type="checkbox">
           </label>
         `).join("")}

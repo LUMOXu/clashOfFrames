@@ -1,4 +1,8 @@
+# Server-only source font for on-demand webfont subsets.
+SourceHanSerifSC-VF.otf.woff2
+
 data/*.json
+data/font-cache/
 node_modules/
 docs/
 plan.txt

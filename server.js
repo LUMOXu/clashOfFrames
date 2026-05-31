@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
+const { execFile } = require("child_process");
 const {
   normalizeSettings,
   createGame,
@@ -30,11 +31,15 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const WAITING_DISCONNECT_KICK_MS = 2 * 60 * 1000;
 const LOADING_DISCONNECT_KICK_MS = 10 * 1000;
 const GOD_COMPUTER_ID = "computer_god";
+const GOD_NAME_FONT_SOURCE = "SourceHanSerifSC-VF.otf.woff2";
+const GOD_NAME_FONT_MAX_CHARS = 512;
 
 function createApp(options = {}) {
   const rootDir = options.rootDir || ROOT_DIR;
   const dataFile = options.dataFile || path.join(rootDir, "data", "state.json");
   const publicDir = path.join(rootDir, "public");
+  const fontSourcePath = options.fontSourcePath || path.join(rootDir, GOD_NAME_FONT_SOURCE);
+  const fontCacheDir = options.fontCacheDir || path.join(rootDir, "data", "font-cache");
   const cardLibraries = discoverCardLibraries(rootDir);
   const computerPlayers = loadComputerPlayers(rootDir);
   const data = loadData(dataFile);
@@ -54,7 +59,7 @@ function createApp(options = {}) {
   });
 
   const server = http.createServer((req, res) => {
-    handleRequest(req, res, { rootDir, publicDir, dataFile, cardLibraries, computerPlayers, state })
+    handleRequest(req, res, { rootDir, publicDir, dataFile, cardLibraries, computerPlayers, state, fontSourcePath, fontCacheDir })
       .catch((error) => {
         const statusCode = error.statusCode || 500;
         if (statusCode >= 500) console.error(error);
@@ -160,6 +165,10 @@ async function handleApi(req, res, url, pathname, context) {
 
   if (req.method === "GET" && pathname === "/api/pmv-index") {
     return sendJson(res, 200, pmvIndexPayload(cardLibraries));
+  }
+
+  if (req.method === "GET" && pathname === "/api/fonts/god-name-subset.woff2") {
+    return handleGodNameFontSubset(res, url, context);
   }
 
   if (req.method === "POST" && pathname === "/api/register") {
@@ -1636,6 +1645,75 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
+async function handleGodNameFontSubset(res, url, context) {
+  const text = normalizeFontSubsetText(url.searchParams.get("text") || "");
+  if (!text) throw httpError(400, "Font subset text is required.");
+  if (!fs.existsSync(context.fontSourcePath)) throw httpError(404, "Font source is not installed.");
+
+  const hash = crypto.createHash("sha256").update(text).digest("hex").slice(0, 24);
+  const outputPath = path.join(context.fontCacheDir, `${hash}.woff2`);
+  if (!fs.existsSync(outputPath)) {
+    await buildGodNameFontSubset(context.fontSourcePath, outputPath, text);
+  }
+
+  const content = await fs.promises.readFile(outputPath);
+  res.writeHead(200, {
+    "Content-Type": "font/woff2",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(content);
+}
+
+function normalizeFontSubsetText(value) {
+  const seen = new Set();
+  const chars = [];
+  for (const char of String(value || "").normalize("NFC")) {
+    if (seen.has(char)) continue;
+    seen.add(char);
+    chars.push(char);
+    if (chars.length >= GOD_NAME_FONT_MAX_CHARS) break;
+  }
+  return chars.join("");
+}
+
+async function buildGodNameFontSubset(sourcePath, outputPath, text) {
+  await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+  const tempPath = `${outputPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await execFilePromise(process.env.PYTHON || "python", [
+      "-m",
+      "fontTools.subset",
+      sourcePath,
+      `--text=${text}`,
+      "--flavor=woff2",
+      `--output-file=${tempPath}`,
+    ]);
+    try {
+      await fs.promises.rename(tempPath, outputPath);
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      await fs.promises.rm(tempPath, { force: true });
+    }
+  } catch (error) {
+    await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+function execFilePromise(file, args) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        error.message = [error.message, stderr, stdout].filter(Boolean).join("\n");
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
 function broadcast(state) {
   const payload = `event: state\ndata: ${JSON.stringify({ at: Date.now() })}\n\n`;
   for (const streams of state.streams.values()) {
@@ -1701,7 +1779,7 @@ function serveStatic(req, res, pathname, context) {
 }
 
 function assetCacheControl(pathname) {
-  if (pathname.startsWith("/cards/") || /^\/(?:assets\/)?bg[1-3]\.jpg$/.test(pathname) || pathname === "/assets/bell.png" || pathname === "/bell.png" || pathname === "/assets/logo.png" || pathname === "/logo.png" || pathname === "/ding.wav" || pathname === "/sendcard.mp3") {
+  if (pathname.startsWith("/cards/") || pathname.startsWith("/assets/fonts/") || /^\/(?:assets\/)?bg[1-3]\.jpg$/.test(pathname) || pathname === "/assets/bell.png" || pathname === "/bell.png" || pathname === "/assets/logo.png" || pathname === "/logo.png" || pathname === "/ding.wav" || pathname === "/sendcard.mp3") {
     return "public, max-age=31536000, immutable";
   }
   return "no-cache";
@@ -1720,6 +1798,8 @@ function mimeType(filePath) {
     ".svg": "image/svg+xml",
     ".wav": "audio/wav",
     ".mp3": "audio/mpeg",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
   }[ext] || "application/octet-stream";
 }
 

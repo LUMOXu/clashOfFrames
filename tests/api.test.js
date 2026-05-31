@@ -39,6 +39,10 @@ async function requestFailure(base, method, pathname, body) {
   return json;
 }
 
+async function requestRaw(base, pathname) {
+  return fetch(`${base}${pathname}`);
+}
+
 async function register(base, username, password = "secret123") {
   const result = await request(base, "POST", "/api/register", { username, password });
   return {
@@ -268,6 +272,35 @@ test("API supports computers, start votes, chat, card viewer, PMV index, and com
     assert.equal(profile.profile.defeatedComputers[computers.players[0].id], 1);
     const leaderboard = await request(base, "GET", "/api/leaderboard");
     assert.ok(leaderboard.players.some((player) => player.isComputer && player.computerId === computers.players[0].id));
+  } finally {
+    await close(server);
+  }
+});
+
+test("god name font subset endpoint returns a small cacheable woff2", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const rootDir = path.join(__dirname, "..");
+  const fontSourcePath = path.join(rootDir, "public", "assets", "fonts", "source-han-serif-sc-intro.woff2");
+  const { server } = createApp({
+    rootDir,
+    dataFile: path.join(tmpDir, "state.json"),
+    fontSourcePath,
+    fontCacheDir: path.join(tmpDir, "font-cache"),
+  });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const response = await requestRaw(base, `/api/fonts/god-name-subset.woff2?text=${encodeURIComponent("GODPMV")}`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") || "", /font\/woff2/);
+    assert.match(response.headers.get("cache-control") || "", /max-age=31536000/);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    assert.ok(bytes.length > 0);
+    assert.ok(bytes.length < fs.statSync(fontSourcePath).size);
+
+    const cachedResponse = await requestRaw(base, `/api/fonts/god-name-subset.woff2?text=${encodeURIComponent("GODPMV")}`);
+    assert.equal(cachedResponse.status, 200);
   } finally {
     await close(server);
   }
