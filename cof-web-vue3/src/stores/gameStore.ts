@@ -15,10 +15,19 @@ export const useGameStore = defineStore("game", () => {
   const connected = ref(false);
   let roomHandler: ((room: RoomSummary) => void) | null = null;
 
+  function applySync(sync: unknown): PublicGame | null {
+    const next = applyGameSync(currentGame.value, sync);
+    if (next) {
+      currentGame.value = next;
+    }
+    return next;
+  }
+
   async function loadGame(gameId: string): Promise<PublicGame> {
-    const game = await gamesApi.getGame(gameId);
-    currentGame.value = game;
-    return game;
+    const { game, sync } = await gamesApi.getGame(gameId);
+    const merged = sync ? applySync(sync) : null;
+    currentGame.value = merged ?? game;
+    return currentGame.value;
   }
 
   async function startGame(roomId: string): Promise<PublicGame> {
@@ -27,16 +36,14 @@ export const useGameStore = defineStore("game", () => {
     return result.game;
   }
 
-  async function playCard(gameId: string): Promise<PublicGame> {
-    const game = await gamesApi.playCard(gameId);
-    currentGame.value = game;
-    return game;
+  async function playCard(gameId: string): Promise<PublicGame | null> {
+    const sync = await gamesApi.playCard(gameId);
+    return applySync(sync);
   }
 
-  async function ringBell(gameId: string): Promise<PublicGame> {
-    const game = await gamesApi.ringBell(gameId);
-    currentGame.value = game;
-    return game;
+  async function ringBell(gameId: string): Promise<PublicGame | null> {
+    const sync = await gamesApi.ringBell(gameId);
+    return applySync(sync);
   }
 
   async function continueGame(gameId: string): Promise<void> {
@@ -59,7 +66,7 @@ export const useGameStore = defineStore("game", () => {
       const type = message.t?.toUpperCase();
       if (type === "SYNC" && message.g) {
         if (!currentGame.value || currentGame.value.id === message.g) {
-          currentGame.value = applyGameSync(currentGame.value, message.sync) ?? currentGame.value;
+          applySync(message.sync);
         }
       }
       if (type === "ROOM" && message.room) {

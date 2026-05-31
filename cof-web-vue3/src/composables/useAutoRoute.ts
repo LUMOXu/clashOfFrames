@@ -34,20 +34,23 @@ export function useAutoRoute(): void {
         return;
       }
 
-      if (status === "loading" && currentRoute !== "loading") {
+      const gameId = room.gameId || gameStore.currentGame?.id;
+      const gameLoading = gameStatus === "loading" || (!gameStatus && status === "loading");
+
+      if (gameLoading && currentRoute !== "loading") {
         void router.push({
           name: "loading",
           params: { roomId },
-          query: { gameId: room.gameId || gameStore.currentGame?.id },
+          query: gameId ? { gameId } : undefined,
         });
         return;
       }
 
-      if ((status === "playing" || gameStatus === "playing") && currentRoute !== "game") {
+      if (status === "playing" && gameStatus === "playing" && currentRoute !== "game") {
         void router.push({
           name: "game",
           params: { roomId },
-          query: { gameId: room.gameId || gameStore.currentGame?.id },
+          query: gameId ? { gameId } : undefined,
         });
       }
     },

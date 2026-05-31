@@ -1,5 +1,7 @@
 let bellAudio: HTMLAudioElement | null = null;
 let sendCardAudio: HTMLAudioElement | null = null;
+let newGameAudio: HTMLAudioElement | null = null;
+let endGameAudio: HTMLAudioElement | null = null;
 let unlocked = false;
 
 function bell(): HTMLAudioElement {
@@ -16,6 +18,22 @@ function sendCard(): HTMLAudioElement {
     sendCardAudio.preload = "auto";
   }
   return sendCardAudio;
+}
+
+function newGame(): HTMLAudioElement {
+  if (!newGameAudio) {
+    newGameAudio = new Audio("/audio/newgame.wav");
+    newGameAudio.preload = "auto";
+  }
+  return newGameAudio;
+}
+
+function endGame(): HTMLAudioElement {
+  if (!endGameAudio) {
+    endGameAudio = new Audio("/audio/endgame.wav");
+    endGameAudio.preload = "auto";
+  }
+  return endGameAudio;
 }
 
 function playClip(factory: () => HTMLAudioElement): void {
@@ -52,7 +70,17 @@ export function playCardSound(): void {
   void playClip(sendCard);
 }
 
+export function playNewGameSound(): void {
+  void playClip(newGame);
+}
+
+export function playEndGameSound(): void {
+  void playClip(endGame);
+}
+
 export function handleAudioEvent(type: string | undefined): void {
   if (type === "ring-bell") playBellSound();
   if (type === "play-card") playCardSound();
+  if (type === "new-game") playNewGameSound();
+  if (type === "end-game") playEndGameSound();
 }

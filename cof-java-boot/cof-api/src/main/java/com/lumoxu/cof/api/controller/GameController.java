@@ -1,7 +1,9 @@
 package com.lumoxu.cof.api.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.lumoxu.cof.api.auth.AuthContext;
 import com.lumoxu.cof.api.auth.RequireAuth;
+import com.lumoxu.cof.api.ws.GameSyncTracker;
 import com.lumoxu.cof.api.ws.WsBroadcastService;
 import com.lumoxu.cof.common.api.ApiResponse;
 import com.lumoxu.cof.engine.PublicGame;
@@ -24,35 +26,58 @@ public class GameController {
     private final GameRuntimeService gameRuntimeService;
     private final RoomService roomService;
     private final WsBroadcastService broadcastService;
+    private final GameSyncTracker syncTracker;
 
     public GameController(
             GameRuntimeService gameRuntimeService,
             RoomService roomService,
-            WsBroadcastService broadcastService) {
+            WsBroadcastService broadcastService,
+            GameSyncTracker syncTracker) {
         this.gameRuntimeService = gameRuntimeService;
         this.roomService = roomService;
         this.broadcastService = broadcastService;
+        this.syncTracker = syncTracker;
     }
 
     @GetMapping("/{gameId}")
-    public ApiResponse<PublicGame> get(@PathVariable("gameId") String gameId) {
-        return ApiResponse.ok(gameRuntimeService.toPublicGame(gameRuntimeService.getRequired(gameId).game));
+    public ApiResponse<Map<String, Object>> get(@PathVariable("gameId") String gameId) {
+        String clientId = AuthContext.get().clientId.toString();
+        PublicGame game = gameRuntimeService.toPublicGame(gameRuntimeService.getRequired(gameId).game);
+        broadcastService.resetClientSync(clientId, gameId);
+        JsonNode sync = syncTracker.publishForClient(clientId, gameId, game);
+        return ApiResponse.ok(Map.of("game", game, "sync", sync));
     }
 
     @PostMapping("/{gameId}/play-card")
-    public ApiResponse<PublicGame> playCard(@PathVariable("gameId") String gameId) throws Exception {
-        PublicGame game = gameRuntimeService.playCard(gameId, AuthContext.get().clientId.toString());
+    public ApiResponse<Map<String, Object>> playCard(@PathVariable("gameId") String gameId) throws Exception {
+        String clientId = AuthContext.get().clientId.toString();
+        String statusBefore = gameRuntimeService.getRequired(gameId).game.status;
+        PublicGame game = gameRuntimeService.playCard(gameId, clientId);
+        JsonNode sync = syncTracker.publishForClient(clientId, gameId, game);
         broadcastService.broadcastGameSync(game);
         broadcastService.broadcastAudio(game.roomId, game.id, "play-card");
-        return ApiResponse.ok(game);
+        if (justFinished(statusBefore, game.status)) {
+            broadcastService.broadcastAudio(game.roomId, game.id, "end-game");
+        }
+        return ApiResponse.ok(Map.of("sync", sync));
     }
 
     @PostMapping("/{gameId}/ring-bell")
-    public ApiResponse<PublicGame> ringBell(@PathVariable("gameId") String gameId) throws Exception {
-        PublicGame game = gameRuntimeService.ringBell(gameId, AuthContext.get().clientId.toString());
+    public ApiResponse<Map<String, Object>> ringBell(@PathVariable("gameId") String gameId) throws Exception {
+        String clientId = AuthContext.get().clientId.toString();
+        String statusBefore = gameRuntimeService.getRequired(gameId).game.status;
+        PublicGame game = gameRuntimeService.ringBell(gameId, clientId);
+        JsonNode sync = syncTracker.publishForClient(clientId, gameId, game);
         broadcastService.broadcastGameSync(game);
         broadcastService.broadcastAudio(game.roomId, game.id, "ring-bell");
-        return ApiResponse.ok(game);
+        if (justFinished(statusBefore, game.status)) {
+            broadcastService.broadcastAudio(game.roomId, game.id, "end-game");
+        }
+        return ApiResponse.ok(Map.of("sync", sync));
+    }
+
+    private static boolean justFinished(String before, String after) {
+        return !"finished".equals(before) && "finished".equals(after);
     }
 
     @PostMapping("/{gameId}/continue")

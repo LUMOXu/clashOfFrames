@@ -1,5 +1,7 @@
 package com.lumoxu.cof.service;
 
+import com.lumoxu.cof.domain.entity.CofDeckPmv;
+import com.lumoxu.cof.domain.mapper.CofDeckPmvMapper;
 import com.lumoxu.cof.service.model.CardLibraryDto;
 import org.springframework.stereotype.Service;
 
@@ -19,9 +21,11 @@ import java.util.stream.Collectors;
 public class CardViewerService {
 
     private final DeckCatalogService deckCatalogService;
+    private final CofDeckPmvMapper deckPmvMapper;
 
-    public CardViewerService(DeckCatalogService deckCatalogService) {
+    public CardViewerService(DeckCatalogService deckCatalogService, CofDeckPmvMapper deckPmvMapper) {
         this.deckCatalogService = deckCatalogService;
+        this.deckPmvMapper = deckPmvMapper;
     }
 
     public Map<String, Object> buildViewerPayload(List<String> libraryIds) {
@@ -39,6 +43,13 @@ public class CardViewerService {
             if (library.backUrl != null) {
                 assets.add(library.backUrl);
             }
+            Long deckId = deckCatalogService.resolveDeckId(library.id);
+            Map<Integer, CofDeckPmv> pmvMeta = new HashMap<>();
+            if (deckId != null) {
+                for (CofDeckPmv pmv : deckPmvMapper.listByDeckId(deckId)) {
+                    pmvMeta.put(pmv.pmvId, pmv);
+                }
+            }
             Map<String, Map<String, Object>> pmvGroups = new LinkedHashMap<>();
             if (library.cards != null) {
                 for (var card : library.cards) {
@@ -49,24 +60,37 @@ public class CardViewerService {
                     pmvGroups.computeIfAbsent(pmvKey, k -> {
                         Map<String, Object> group = new HashMap<>();
                         group.put("pmvId", card.pmvId);
+                        CofDeckPmv meta = pmvMeta.get(card.pmvId);
+                        group.put("name", meta != null && meta.name != null ? meta.name : card.pmvName);
                         group.put("pmvName", card.pmvName);
-                        group.put("cards", new ArrayList<Map<String, Object>>());
+                        if (meta != null) {
+                            group.put("author", meta.author);
+                            group.put("description", meta.description);
+                            group.put("link", meta.link);
+                        }
+                        group.put("shots", new ArrayList<Map<String, Object>>());
                         return group;
                     });
                     @SuppressWarnings("unchecked")
-                    List<Map<String, Object>> cards = (List<Map<String, Object>>) pmvGroups.get(pmvKey).get("cards");
+                    List<Map<String, Object>> shots = (List<Map<String, Object>>) pmvGroups.get(pmvKey).get("shots");
                     Map<String, Object> entry = new HashMap<>();
                     entry.put("id", card.id);
                     entry.put("imageUrl", card.imageUrl);
                     entry.put("shot", card.shot);
-                    cards.add(entry);
+                    shots.add(entry);
                 }
             }
             Map<String, Object> lib = new HashMap<>();
             lib.put("id", library.id);
             lib.put("name", library.name);
+            lib.put("folderName", library.folderName);
+            lib.put("curator", library.curator);
+            lib.put("description", library.description);
+            lib.put("version", library.version);
+            lib.put("link", library.link);
             lib.put("backUrl", library.backUrl);
             lib.put("cardCount", library.cardCount);
+            lib.put("pmvCount", library.pmvCount);
             lib.put("pmvs", new ArrayList<>(pmvGroups.values()));
             libraryPayload.add(lib);
         }

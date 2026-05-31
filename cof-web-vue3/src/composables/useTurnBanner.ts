@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, ref, type Ref } from "vue";
+import { onMounted, onUnmounted, ref, type Ref } from "vue";
 import type { PublicGame, PublicPlayer } from "@/types/api";
 
 const MAX_VISIBLE_TURN_COUNTDOWN_SECONDS = 8;
@@ -51,17 +51,5 @@ export function useTurnBanner(
     return player.clientId === selfId.value ? "轮到你出牌" : `轮到 ${player.username} 出牌`;
   }
 
-  const globalTurnHint = computed(() => {
-    const g = game.value;
-    if (!g || g.status !== "playing" || locked.value) return "";
-    const current = g.players?.[g.turnIndex ?? 0];
-    if (!current || current.clientId === selfId.value) return "";
-    const remaining = turnSecondsLeft();
-    if (remaining > 0 && remaining <= MAX_VISIBLE_TURN_COUNTDOWN_SECONDS) {
-      return `${current.username} 出牌倒计时 ${remaining} 秒`;
-    }
-    return "";
-  });
-
-  return { turnTitle, turnDetail, globalTurnHint, turnSecondsLeft };
+  return { turnTitle, turnDetail, turnSecondsLeft };
 }

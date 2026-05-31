@@ -2,6 +2,7 @@ package com.lumoxu.cof.service;
 
 import com.lumoxu.cof.engine.ActionResult;
 import com.lumoxu.cof.engine.Game;
+import com.lumoxu.cof.engine.GameConstants;
 import com.lumoxu.cof.engine.GameCore;
 import com.lumoxu.cof.engine.Player;
 import com.lumoxu.cof.engine.PublicGame;
@@ -20,6 +21,7 @@ public class GameTickOrchestrator {
     private final GameRuntimeService gameRuntimeService;
     private final RoomService roomService;
     private final ComputerPlayerAdvanceService computerAdvanceService;
+    private final RoomMaintenanceService roomMaintenanceService;
     private final Optional<GameTickBroadcaster> broadcaster;
 
     public GameTickOrchestrator(
@@ -27,18 +29,25 @@ public class GameTickOrchestrator {
             GameRuntimeService gameRuntimeService,
             RoomService roomService,
             ComputerPlayerAdvanceService computerAdvanceService,
+            RoomMaintenanceService roomMaintenanceService,
             Optional<GameTickBroadcaster> broadcaster) {
         this.redis = redis;
         this.gameRuntimeService = gameRuntimeService;
         this.roomService = roomService;
         this.computerAdvanceService = computerAdvanceService;
+        this.roomMaintenanceService = roomMaintenanceService;
         this.broadcaster = broadcaster;
     }
 
     public void tick() {
         long now = System.currentTimeMillis();
         for (String roomId : redis.setMembers(RedisKeys.ROOM_INDEX)) {
-            roomService.get(roomId).ifPresent(room -> tickRoom(room, now));
+            roomService.get(roomId).ifPresent(room -> {
+                if (roomMaintenanceService.maintain(room, now)) {
+                    return;
+                }
+                tickRoom(room, now);
+            });
         }
     }
 
@@ -70,26 +79,14 @@ public class GameTickOrchestrator {
             return;
         }
 
-        boolean changed = false;
+        String statusBefore = game.status;
         ComputerTickOutcome computerOutcome = computerAdvanceService.advance(game, now);
-        if (computerOutcome.changed) {
-            changed = true;
-        }
-
+        boolean changed = computerOutcome.played || computerOutcome.rang;
         ComputerTickOutcome broadcastOutcome = computerOutcome;
-        if (!changed && game.lockedUntil <= now) {
-            Player current = game.players.get(game.turnIndex);
-            if (current != null
-                    && !current.eliminated
-                    && !current.exited
-                    && !current.drawPile.isEmpty()
-                    && now >= game.turnDeadlineAt) {
-                ActionResult timeout = GameCore.performPlayCard(game, current.clientId, now, true);
-                if (timeout.ok) {
-                    changed = true;
-                    broadcastOutcome = ComputerTickOutcome.of(true, true, false);
-                }
-            }
+
+        if (!changed && applyTurnTimeoutIfDue(game, now)) {
+            changed = true;
+            broadcastOutcome = ComputerTickOutcome.of(true, true, false);
         }
 
         if (!changed) {
@@ -99,6 +96,38 @@ public class GameTickOrchestrator {
         gameRuntimeService.save(game);
         PublicGame publicGame = gameRuntimeService.toPublicGame(game);
         ComputerTickOutcome outcome = broadcastOutcome;
+        outcome.justFinished = !"finished".equals(statusBefore) && "finished".equals(game.status);
         broadcaster.ifPresent(b -> b.onGameUpdated(room, publicGame, outcome));
+    }
+
+    /**
+     * 与 old/server.js tick 一致：出牌截止时间到后自动出牌（含真人玩家）。
+     * 仅在人机本 tick 未出牌/按铃时检查，避免 AI 状态机占位导致永不触发。
+     */
+    static boolean applyTurnTimeoutIfDue(Game game, long now) {
+        if (game.lockedUntil > now) {
+            return false;
+        }
+        Player current = game.players.get(game.turnIndex);
+        if (current == null
+                || current.eliminated
+                || current.exited
+                || current.drawPile.isEmpty()) {
+            return false;
+        }
+        if (!current.connected
+                && game.settings != null
+                && game.settings.disconnectProtection) {
+            long base = Math.max(game.turnStartedAt, game.turnAvailableAt);
+            long disconnectedDeadline = base + GameConstants.DISCONNECTED_TURN_TIMEOUT_MS;
+            if (game.turnDeadlineAt > disconnectedDeadline) {
+                game.turnDeadlineAt = disconnectedDeadline;
+            }
+        }
+        if (now < game.turnDeadlineAt) {
+            return false;
+        }
+        ActionResult timeout = GameCore.performPlayCard(game, current.clientId, now, true);
+        return timeout.ok;
     }
 }

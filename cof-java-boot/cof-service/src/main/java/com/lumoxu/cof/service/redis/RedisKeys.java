@@ -15,12 +15,17 @@ public final class RedisKeys {
     public static final String GAME_CATALOG_SUFFIX = ":catalog";
     public static final String ROOM_INDEX = "cof:rooms:index";
     public static final String PLAYER_ROOM_PREFIX = "cof:player-room:";
+    public static final String PLAYER_PRESENCE_PREFIX = "cof:player-presence:";
 
     private RedisKeys() {
     }
 
     public static String playerRoom(String clientId) {
         return PLAYER_ROOM_PREFIX + clientId;
+    }
+
+    public static String playerPresence(String clientId) {
+        return PLAYER_PRESENCE_PREFIX + clientId;
     }
 
     public static String session(String token) {

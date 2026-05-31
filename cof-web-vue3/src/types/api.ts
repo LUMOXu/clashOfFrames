@@ -4,10 +4,19 @@ export interface ApiResponse<T> {
   data: T | null;
 }
 
+export interface PlayerInGameStats {
+  plays?: number;
+  rings?: number;
+  correctRings?: number;
+  wrongRings?: number;
+  wonCards?: number;
+}
+
 export interface PublicPlayer {
   clientId: string;
   username: string;
   statsId?: string;
+  stats?: PlayerInGameStats;
   connected?: boolean;
   eliminated?: boolean;
   exited?: boolean;
@@ -19,6 +28,8 @@ export interface PublicPlayer {
   displayCount?: number;
   isComputer?: boolean;
   computerId?: string;
+  rank?: number;
+  eliminatedAt?: number;
   displayPile?: PublicCard[];
   drawPile?: PublicCard[];
 }
@@ -33,7 +44,19 @@ export interface PublicCard {
 
 export interface GameLog {
   id?: string;
+  playCount?: number;
   text?: string;
+  at?: number;
+}
+
+export interface ResultInfoPlayer {
+  clientId: string;
+  username: string;
+}
+
+export interface ResultInfo {
+  players?: ResultInfoPlayer[];
+  counts?: number[][];
 }
 
 export interface PublicMatch {
@@ -58,15 +81,25 @@ export interface PublicAnimation {
   transfers?: { fromPlayerId?: string; toPlayerId?: string; card?: PublicCard; delayMs?: number }[];
 }
 
+export interface PublicTopEntry {
+  playerId?: string;
+  username?: string;
+  playedSeq?: number;
+  card?: PublicCard;
+}
+
 export interface PublicGame {
   id: string;
   roomId?: string;
+  settings?: GameSettings;
   status?: string;
   turnIndex?: number;
   turnDeadlineAt?: number;
   turnAvailableAt?: number;
   playCount?: number;
   bellCount?: number;
+  successBellCount?: number;
+  failBellCount?: number;
   lockedUntil?: number;
   lockMessage?: string;
   winnerId?: string;
@@ -74,9 +107,10 @@ export interface PublicGame {
   logs?: GameLog[];
   lastMatch?: PublicMatch;
   lastAnimation?: PublicAnimation;
+  preLastTopCards?: PublicTopEntry[];
   continueVotes?: string[];
   continueReturnAt?: number;
-  resultInfo?: { players?: unknown[]; counts?: number[][] };
+  resultInfo?: ResultInfo;
 }
 
 export interface RoomChatMessage {
@@ -142,13 +176,38 @@ export interface ProfileData {
 
 export type LeaderboardEntry = Record<string, unknown>;
 
+export interface LeaderboardData {
+  players: LeaderboardEntry[];
+  matches: LeaderboardEntry[];
+}
+
+export interface CardViewerPmv {
+  pmvId?: number;
+  name?: string;
+  pmvName?: string;
+  author?: string;
+  description?: string;
+  link?: string;
+  shots?: { id: string; imageUrl?: string; shot?: string }[];
+  cards?: { id: string; imageUrl?: string; shot?: string }[];
+}
+
+export interface CardViewerLibrary {
+  id: string;
+  name: string;
+  folderName?: string;
+  curator?: string;
+  description?: string;
+  version?: string;
+  link?: string;
+  backUrl?: string;
+  cardCount?: number;
+  pmvCount?: number;
+  pmvs?: CardViewerPmv[];
+}
+
 export interface CardViewerPayload {
   key: string;
   assets: string[];
-  libraries: {
-    id: string;
-    name: string;
-    backUrl?: string;
-    pmvs?: { pmvId?: number; pmvName?: string; cards?: { id: string; imageUrl?: string; shot?: string }[] }[];
-  }[];
+  libraries: CardViewerLibrary[];
 }

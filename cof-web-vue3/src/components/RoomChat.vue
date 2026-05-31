@@ -6,7 +6,7 @@ import type { RoomChatMessage } from "@/types/api";
 const props = defineProps<{
   roomId: string;
   messages: RoomChatMessage[];
-  variant?: "default" | "game";
+  variant?: "default" | "game" | "waiting";
 }>();
 
 const emit = defineEmits<{
@@ -15,11 +15,6 @@ const emit = defineEmits<{
 
 const draft = ref("");
 const messagesEl = ref<HTMLElement | null>(null);
-
-function formatChatLine(msg: RoomChatMessage): string {
-  const time = new Date(msg.at).toLocaleTimeString("zh-CN", { hour12: false });
-  return `[${time}][${msg.username}]${msg.text}`;
-}
 
 async function scrollToLatest(): Promise<void> {
   await nextTick();
@@ -51,17 +46,30 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <section class="chat-area" :class="{ 'game-chat': variant === 'game' }">
-    <h3 v-if="variant !== 'game'">聊天</h3>
+  <section
+    class="chat-area"
+    :class="{ 'game-chat': variant === 'game', 'waiting-chat-panel': variant === 'waiting' }"
+  >
+    <header v-if="variant === 'waiting'" class="chat-panel-header">
+      <h3>聊天</h3>
+    </header>
+    <h3 v-else-if="variant !== 'game'">聊天</h3>
     <div ref="messagesEl" class="chat-messages">
-      <div v-if="!messages.length" class="muted">暂无聊天。</div>
+      <p v-if="!messages.length" class="chat-empty muted">暂无聊天。</p>
       <div v-for="(msg, i) in messages" :key="`${msg.at}-${msg.clientId}-${i}`" class="chat-line">
-        {{ formatChatLine(msg) }}
+        <template v-if="variant === 'waiting'">
+          <span class="chat-time">{{ new Date(msg.at).toLocaleTimeString("zh-CN", { hour12: false }) }}</span>
+          <span class="chat-user">{{ msg.username }}</span>
+          <span class="chat-text">{{ msg.text }}</span>
+        </template>
+        <template v-else>
+          [{{ new Date(msg.at).toLocaleTimeString("zh-CN", { hour12: false }) }}][{{ msg.username }}]{{ msg.text }}
+        </template>
       </div>
     </div>
     <form class="chat-form" @submit.prevent="submit">
       <input v-model="draft" maxlength="40" autocomplete="off" placeholder="最多 40 字" />
-      <button type="submit">发送</button>
+      <button class="primary" type="submit">发送</button>
     </form>
   </section>
 </template>

@@ -3,15 +3,18 @@ import { ref } from "vue";
 import * as metaApi from "@/api/meta";
 import { fetchLeaderboard } from "@/api/leaderboard";
 import { fetchProfile } from "@/api/profile";
-import type { LeaderboardEntry } from "@/types/api";
+import type { CardViewerPayload, LeaderboardData } from "@/types/api";
+import type { PmvIndexRow } from "@/types/pmvIndex";
+import type { ComputerPlayer } from "@/types/computer";
+import { normalizeComputerPlayers } from "@/utils/computerPlayer";
 
 export const useLobbyStore = defineStore("lobby", () => {
   const cardLibraries = ref<unknown[]>([]);
-  const computerPlayers = ref<unknown[]>([]);
-  const pmvIndex = ref<unknown[]>([]);
+  const computerPlayers = ref<ComputerPlayer[]>([]);
+  const pmvIndex = ref<PmvIndexRow[]>([]);
   const profile = ref<Record<string, unknown> | null>(null);
-  const leaderboard = ref<LeaderboardEntry[]>([]);
-  const cardViewerPayload = ref<unknown | null>(null);
+  const leaderboard = ref<LeaderboardData | null>(null);
+  const cardViewerPayload = ref<CardViewerPayload | null>(null);
   const selectedLibraryIds = ref<string[]>([]);
   const loadingMeta = ref(false);
   const loadingProfile = ref(false);
@@ -26,7 +29,7 @@ export const useLobbyStore = defineStore("lobby", () => {
         metaApi.fetchComputerPlayers(),
       ]);
       cardLibraries.value = libraries.libraries ?? [];
-      computerPlayers.value = computers.players ?? [];
+      computerPlayers.value = normalizeComputerPlayers(computers.players ?? []);
     } finally {
       loadingMeta.value = false;
     }
@@ -54,7 +57,7 @@ export const useLobbyStore = defineStore("lobby", () => {
   async function loadPmvIndex(): Promise<void> {
     loadingPmvIndex.value = true;
     try {
-      pmvIndex.value = await metaApi.fetchPmvIndex();
+      pmvIndex.value = (await metaApi.fetchPmvIndex()) as PmvIndexRow[];
     } finally {
       loadingPmvIndex.value = false;
     }
@@ -64,7 +67,7 @@ export const useLobbyStore = defineStore("lobby", () => {
     selectedLibraryIds.value = libraryIds;
   }
 
-  function setCardViewerPayload(payload: unknown | null): void {
+  function setCardViewerPayload(payload: CardViewerPayload | null): void {
     cardViewerPayload.value = payload;
   }
 

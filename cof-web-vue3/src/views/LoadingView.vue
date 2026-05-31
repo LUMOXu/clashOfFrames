@@ -6,6 +6,7 @@ import PagePanel from "@/components/PagePanel.vue";
 import RoomChat from "@/components/RoomChat.vue";
 import { getRoomAssets } from "@/api/assets";
 import * as roomsApi from "@/api/rooms";
+import { unlockGameAudio } from "@/composables/useGameAudio";
 import { useAuthStore } from "@/stores/authStore";
 import { useGameStore } from "@/stores/gameStore";
 import { useRoomStore } from "@/stores/roomStore";
@@ -61,7 +62,13 @@ function goToGame(): void {
   });
 }
 
+function onFirstInteraction(): void {
+  void unlockGameAudio();
+}
+
 onMounted(async () => {
+  window.addEventListener("pointerdown", onFirstInteraction, { once: true });
+  window.addEventListener("keydown", onFirstInteraction, { once: true });
   if (!roomId.value) return;
   if (auth.token) {
     gameStore.requestLoad(roomId.value, gameId.value || undefined);

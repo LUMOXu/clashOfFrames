@@ -17,7 +17,8 @@ class SessionServiceTest {
 
     @BeforeEach
     void setUp() {
-        sessionService = new SessionService(TestRedisSupport.memoryJsonRedis(new ObjectMapper()));
+        var redis = TestRedisSupport.memoryJsonRedis(new ObjectMapper());
+        sessionService = new SessionService(redis, new PlayerPresenceService(redis));
     }
 
     @Test

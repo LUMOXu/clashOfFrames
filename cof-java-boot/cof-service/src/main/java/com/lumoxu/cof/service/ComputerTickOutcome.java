@@ -5,6 +5,7 @@ public class ComputerTickOutcome {
     public boolean changed;
     public boolean played;
     public boolean rang;
+    public boolean justFinished;
 
     public static ComputerTickOutcome none() {
         return new ComputerTickOutcome();

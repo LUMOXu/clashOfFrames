@@ -16,13 +16,16 @@ describe("lobbyStore", () => {
 
   it("loads meta libraries and computers", async () => {
     vi.mocked(metaApi.fetchCardLibraries).mockResolvedValue({ libraries: [{ id: "lib1" }] });
-    vi.mocked(metaApi.fetchComputerPlayers).mockResolvedValue({ players: [{ id: "cpu1" }] });
+    vi.mocked(metaApi.fetchComputerPlayers).mockResolvedValue({
+      players: [{ id: "cpu1", name: "Test", playDelayMeanSeconds: 2, matchDetectionProbability: 0.5 }],
+    });
 
     const store = useLobbyStore();
     await store.loadMeta();
 
     expect(store.cardLibraries).toHaveLength(1);
     expect(store.computerPlayers).toHaveLength(1);
+    expect(store.computerPlayers[0]?.playDelayMeanSeconds).toBe(2);
   });
 
   it("loads profile and leaderboard", async () => {

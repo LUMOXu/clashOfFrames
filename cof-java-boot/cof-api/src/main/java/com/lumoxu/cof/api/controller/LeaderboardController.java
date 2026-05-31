@@ -20,7 +20,7 @@ public class LeaderboardController {
     }
 
     @GetMapping
-    public ApiResponse<List<Map<String, Object>>> leaderboard() {
+    public ApiResponse<Map<String, Object>> leaderboard() {
         return ApiResponse.ok(userStatsService.leaderboard());
     }
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import PagePanel from "@/components/PagePanel.vue";
 import LibraryPicker from "@/components/room/LibraryPicker.vue";
@@ -44,6 +44,14 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 onMounted(async () => {
   await lobby.loadMeta();
+  if (roomId.value) {
+    roomStore.activeRoomId = roomId.value;
+    try {
+      await roomStore.refreshRoom(roomId.value);
+    } catch {
+      /* ignore */
+    }
+  }
   if (roomStore.currentRoom?.settings) {
     settings.value = { ...roomStore.currentRoom.settings };
   }
@@ -83,7 +91,7 @@ async function transfer(): Promise<void> {
           <select v-model="newHostId">
             <option value="">选择玩家</option>
             <option
-              v-for="p in roomStore.currentRoom?.playerDetails || []"
+              v-for="p in (roomStore.currentRoom?.playerDetails || []).filter((player) => !player.isComputer)"
               :key="p.clientId"
               :value="p.clientId"
             >
@@ -91,14 +99,24 @@ async function transfer(): Promise<void> {
             </option>
           </select>
         </label>
-        <button class="primary" type="button" @click="transfer">确认转让</button>
+        <div class="actions settings-actions">
+          <button class="primary" type="button" :disabled="!newHostId" @click="transfer">确认转让</button>
+          <RouterLink v-if="roomId" class="action-link" :to="{ name: 'waiting', params: { roomId } }">
+            <button type="button">返回等待室</button>
+          </RouterLink>
+        </div>
       </template>
       <template v-else>
         <p v-if="saveHint" class="muted">{{ saveHint }}</p>
-        <form class="grid">
+        <form class="grid settings-form">
           <RoomOptionsForm :settings="settings" show-vote show-advanced />
           <LibraryPicker :libraries="libraries" :settings="settings" />
         </form>
+        <div class="actions settings-actions">
+          <RouterLink v-if="roomId" class="action-link" :to="{ name: 'waiting', params: { roomId } }">
+            <button type="button">返回等待室</button>
+          </RouterLink>
+        </div>
       </template>
     </PagePanel>
   </AppShell>

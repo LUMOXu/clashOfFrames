@@ -5,6 +5,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,6 +53,25 @@ public class WsSessionRegistry {
 
     public void broadcastGame(String gameId, String json) {
         broadcast(byGame.get(gameId), json);
+    }
+
+    public Set<WebSocketSession> gameSessions(String gameId) {
+        if (gameId == null || gameId.isBlank()) {
+            return Set.of();
+        }
+        Set<WebSocketSession> sessions = byGame.get(gameId);
+        return sessions == null ? Set.of() : Collections.unmodifiableSet(sessions);
+    }
+
+    public void sendToSession(WebSocketSession session, String json) {
+        if (session == null || !session.isOpen()) {
+            return;
+        }
+        try {
+            session.sendMessage(new TextMessage(json));
+        } catch (IOException ignored) {
+            // drop broken sessions
+        }
     }
 
     public void broadcastRoomAndGame(String roomId, String gameId, String json) {

@@ -33,6 +33,7 @@ public class RoomService {
     private final ComputerPlayerService computerPlayerService;
     private final UserStatsService userStatsService;
     private final PlayerRoomService playerRoomService;
+    private final PlayerPresenceService playerPresenceService;
 
     public RoomService(
             JsonRedisOps redis,
@@ -41,7 +42,8 @@ public class RoomService {
             GameRuntimeService gameRuntimeService,
             ComputerPlayerService computerPlayerService,
             UserStatsService userStatsService,
-            PlayerRoomService playerRoomService) {
+            PlayerRoomService playerRoomService,
+            PlayerPresenceService playerPresenceService) {
         this.redis = redis;
         this.metaService = metaService;
         this.deckCatalogService = deckCatalogService;
@@ -49,6 +51,7 @@ public class RoomService {
         this.computerPlayerService = computerPlayerService;
         this.userStatsService = userStatsService;
         this.playerRoomService = playerRoomService;
+        this.playerPresenceService = playerPresenceService;
     }
 
     public RoomState createRoom(String hostId, String hostUsername, GameSettings settings, List<String> computerIds) {
@@ -104,6 +107,7 @@ public class RoomService {
                 room.players.add(clientId);
                 rememberUsername(room, clientId, username);
                 playerRoomService.bind(clientId, room.id);
+                playerPresenceService.touchConnected(clientId);
             }
             room.spectators.remove(clientId);
             deckCatalogService.warmRoomCatalog(room.id, room.settings);
@@ -128,6 +132,7 @@ public class RoomService {
         if (!room.spectators.contains(clientId)) {
             room.spectators.add(clientId);
         }
+        playerPresenceService.touchConnected(clientId);
         save(room);
         Map<String, Object> result = new HashMap<>();
         result.put("room", summary(room));
@@ -235,6 +240,8 @@ public class RoomService {
         assets.add("/assets/logo.png");
         assets.add("/audio/ding.wav");
         assets.add("/audio/sendcard.mp3");
+        assets.add("/audio/newgame.wav");
+        assets.add("/audio/endgame.wav");
         List<Map<String, Object>> libraries = new ArrayList<>();
         for (CardLibraryDto lib : full) {
             if (lib.backUrl != null) {
@@ -286,12 +293,12 @@ public class RoomService {
         room.players.remove(clientId);
         room.spectators.remove(clientId);
         room.startVotes.remove(clientId);
-        if (room.hostId.equals(clientId) && !room.players.isEmpty()) {
-            room.hostId = room.players.get(0);
+        if (room.hostId.equals(clientId)) {
+            migrateHostIfNeeded(room);
         }
         playerRoomService.unbind(clientId);
-        if (room.players.isEmpty()) {
-            deleteRoom(room);
+        if (RoomMaintenanceService.humanOccupants(room).isEmpty()) {
+            autoDisband(room);
             return Map.of("left", true, "disbanded", true);
         }
         save(room);
@@ -300,6 +307,10 @@ public class RoomService {
 
     public void disband(RoomState room, String hostId) {
         ensureHost(room, hostId);
+        autoDisband(room);
+    }
+
+    public void autoDisband(RoomState room) {
         if (room.gameId != null) {
             gameRuntimeService.get(room.gameId).ifPresent(bundle -> {
                 bundle.game.status = "aborted";
@@ -328,6 +339,9 @@ public class RoomService {
         if (!room.players.contains(newHostId)) {
             throw new CofException(ErrorCode.CONFLICT, "目标玩家不在房间中。");
         }
+        if (PlayerPresenceService.isComputerClient(newHostId)) {
+            throw new CofException(ErrorCode.BAD_REQUEST, "人机不能担任房主。");
+        }
         room.hostId = newHostId;
         save(room);
         return room;
@@ -336,6 +350,11 @@ public class RoomService {
     public void removeComputer(RoomState room, String hostId, String computerId) {
         ensureHost(room, hostId);
         room.players.removeIf(id -> id.endsWith(":" + computerId));
+        if (RoomMaintenanceService.humanOccupants(room).isEmpty()) {
+            autoDisband(room);
+            return;
+        }
+        migrateHostIfNeeded(room);
         save(room);
     }
 
@@ -374,9 +393,44 @@ public class RoomService {
     }
 
     public void ensureHost(RoomState room, String clientId) {
+        migrateHostIfNeeded(room);
         if (!room.hostId.equals(clientId)) {
             throw new CofException(ErrorCode.FORBIDDEN, "只有房主可以执行此操作。");
         }
+    }
+
+    /**
+     * 与 old/server.js migrateHost 一致：房主只能由真人担任，掉线时优先转给仍在线的真人。
+     */
+    public void migrateHostIfNeeded(RoomState room) {
+        if (room.hostId != null
+                && room.players.contains(room.hostId)
+                && !PlayerPresenceService.isComputerClient(room.hostId)
+                && isHumanConnected(room.hostId)) {
+            return;
+        }
+        String previous = room.hostId;
+        String nextHost = pickNextHumanHost(room, true).or(() -> pickNextHumanHost(room, false)).orElse(null);
+        if (nextHost != null && !nextHost.equals(previous)) {
+            room.hostId = nextHost;
+            save(room);
+        }
+    }
+
+    private Optional<String> pickNextHumanHost(RoomState room, boolean requireConnected) {
+        for (String clientId : room.players) {
+            if (PlayerPresenceService.isComputerClient(clientId)) {
+                continue;
+            }
+            if (!requireConnected || isHumanConnected(clientId)) {
+                return Optional.of(clientId);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private boolean isHumanConnected(String clientId) {
+        return playerPresenceService.get(clientId).map(presence -> presence.connected).orElse(true);
     }
 
     private GameSettings normalizeSettings(GameSettings input) {

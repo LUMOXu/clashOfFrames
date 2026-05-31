@@ -6,37 +6,42 @@ import com.lumoxu.cof.engine.PublicGame;
 import com.lumoxu.cof.service.RoomService;
 import com.lumoxu.cof.service.model.RoomState;
 import org.springframework.stereotype.Service;
-
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.web.socket.WebSocketSession;
 
 @Service
 public class WsBroadcastService {
 
     private final ObjectMapper objectMapper;
-    private final GameSyncEncoder syncEncoder;
+    private final GameSyncTracker syncTracker;
     private final WsSessionRegistry registry;
     private final RoomService roomService;
-    private final Map<String, PublicGame> lastGameSnapshots = new ConcurrentHashMap<>();
 
     public WsBroadcastService(
             ObjectMapper objectMapper,
-            GameSyncEncoder syncEncoder,
+            GameSyncTracker syncTracker,
             WsSessionRegistry registry,
             RoomService roomService) {
         this.objectMapper = objectMapper;
-        this.syncEncoder = syncEncoder;
+        this.syncTracker = syncTracker;
         this.registry = registry;
         this.roomService = roomService;
     }
 
-    public void registerSession(org.springframework.web.socket.WebSocketSession session, String roomId, String gameId) {
+    public void registerSession(WebSocketSession session, String roomId, String gameId) {
         registry.bind(session, roomId, gameId);
     }
 
-    public void unregisterSession(org.springframework.web.socket.WebSocketSession session) {
+    public void unregisterSession(WebSocketSession session) {
+        syncTracker.clearSession(session.getId());
         registry.unbind(session);
-        lastGameSnapshots.remove(session.getId());
+    }
+
+    public void resetSessionSync(WebSocketSession session) {
+        syncTracker.resetSession(session.getId());
+    }
+
+    public void resetClientSync(String clientId, String gameId) {
+        syncTracker.resetClient(clientId, gameId);
     }
 
     public void broadcastRoom(RoomState room) throws Exception {
@@ -54,17 +59,17 @@ public class WsBroadcastService {
         if (game == null || game.id == null) {
             return;
         }
-        lastGameSnapshots.put(game.id, game);
-        WsMessage sync = WsMessage.ofType("SYNC");
-        sync.g = game.id;
-        sync.r = game.roomId;
-        sync.ti = game.turnIndex;
-        sync.pc = Integer.toString(game.playCount);
-        sync.sync = objectMapper.createObjectNode().set("full", objectMapper.valueToTree(game));
-        String json = objectMapper.writeValueAsString(sync);
-        registry.broadcastGame(game.id, json);
-        if (game.roomId != null) {
-            registry.broadcastRoom(game.roomId, json);
+        for (WebSocketSession session : registry.gameSessions(game.id)) {
+            if (!session.isOpen()) {
+                continue;
+            }
+            WsMessage sync = WsMessage.ofType("SYNC");
+            sync.g = game.id;
+            sync.r = game.roomId;
+            sync.ti = game.turnIndex;
+            sync.pc = Integer.toString(game.playCount);
+            sync.sync = syncTracker.publishForSession(session.getId(), game);
+            registry.sendToSession(session, objectMapper.writeValueAsString(sync));
         }
     }
 

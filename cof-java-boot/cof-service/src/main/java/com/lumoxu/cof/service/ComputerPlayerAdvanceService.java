@@ -29,13 +29,8 @@ public class ComputerPlayerAdvanceService {
                 continue;
             }
             ComputerTickOutcome step = advanceOne(game, player, profile, now);
-            if (step.changed) {
-                result.changed = true;
-                result.played = result.played || step.played;
-                result.rang = result.rang || step.rang;
-                if (step.played || step.rang) {
-                    return result;
-                }
+            if (step.played || step.rang) {
+                return ComputerTickOutcome.of(true, step.played, step.rang);
             }
         }
         return result;
@@ -51,7 +46,7 @@ public class ComputerPlayerAdvanceService {
             player.computerState = computerState(
                     !tableHasDisplayCards(game) && canComputerPlay(game, player, now) ? "play" : "wait",
                     game);
-            return ComputerTickOutcome.of(true, false, false);
+            return ComputerTickOutcome.none();
         }
 
         if ("wait".equals(stateName)) {
@@ -60,7 +55,7 @@ public class ComputerPlayerAdvanceService {
             } else if (canComputerPlay(game, player, now)) {
                 player.computerState = computerState("play", game);
             }
-            return ComputerTickOutcome.of(true, false, false);
+            return ComputerTickOutcome.none();
         }
 
         if ("play".equals(stateName)) {
@@ -68,16 +63,15 @@ public class ComputerPlayerAdvanceService {
                 player.computerState = game.lockedUntil > now
                         ? computerState("settling", game, game.lockedUntil)
                         : computerState("next", game);
-                return ComputerTickOutcome.of(true, false, false);
+                return ComputerTickOutcome.none();
             }
             if (game.playCount != player.computerState.observedPlayCount) {
                 player.computerState = computerState("analysis", game);
-                return ComputerTickOutcome.of(true, false, false);
+                return ComputerTickOutcome.none();
             }
             if (!canComputerPlay(game, player, now)) {
                 if (!player.clientId.equals(game.players.get(game.turnIndex).clientId)) {
                     player.computerState = computerState("analysis", game);
-                    return ComputerTickOutcome.of(true, false, false);
                 }
                 return ComputerTickOutcome.none();
             }
@@ -88,7 +82,7 @@ public class ComputerPlayerAdvanceService {
                                 profile.playDelayStdSeconds,
                                 1500,
                                 7000);
-                return ComputerTickOutcome.of(true, false, false);
+                return ComputerTickOutcome.none();
             }
             if (now >= player.computerState.actionAt) {
                 ActionResult played = GameCore.performPlayCard(game, player.clientId, now, true);
@@ -115,7 +109,7 @@ public class ComputerPlayerAdvanceService {
             } else {
                 player.computerState = computerState("next", game);
             }
-            return ComputerTickOutcome.of(true, false, false);
+            return ComputerTickOutcome.none();
         }
 
         if ("ring".equals(stateName)) {
@@ -123,15 +117,15 @@ public class ComputerPlayerAdvanceService {
                 player.computerState = game.lockedUntil > now
                         ? computerState("settling", game, game.lockedUntil)
                         : computerState("next", game);
-                return ComputerTickOutcome.of(true, false, false);
+                return ComputerTickOutcome.none();
             }
             if (game.playCount != player.computerState.observedPlayCount) {
                 player.computerState = computerState("analysis", game);
-                return ComputerTickOutcome.of(true, false, false);
+                return ComputerTickOutcome.none();
             }
             if (game.lockedUntil > now) {
                 player.computerState = computerState("settling", game, game.lockedUntil);
-                return ComputerTickOutcome.of(true, false, false);
+                return ComputerTickOutcome.none();
             }
             if (player.computerState.actionAt != null && now >= player.computerState.actionAt) {
                 ActionResult rang = GameCore.performRingBell(game, player.clientId, now, Math::random);
@@ -149,18 +143,17 @@ public class ComputerPlayerAdvanceService {
             long waitUntil = player.computerState.waitUntil != null ? player.computerState.waitUntil : 0L;
             if (now >= waitUntil) {
                 player.computerState = computerState("next", game);
-                return ComputerTickOutcome.of(true, false, false);
             }
             return ComputerTickOutcome.none();
         }
 
         if ("next".equals(stateName)) {
             player.computerState = computerState(canComputerPlay(game, player, now) ? "play" : "wait", game);
-            return ComputerTickOutcome.of(true, false, false);
+            return ComputerTickOutcome.none();
         }
 
         player.computerState = computerState("wait", game);
-        return ComputerTickOutcome.of(true, false, false);
+        return ComputerTickOutcome.none();
     }
 
     private ComputerPlayerDto resolveProfile(Player player) {

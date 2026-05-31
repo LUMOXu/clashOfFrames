@@ -8,21 +8,25 @@ vi.mock("./client", () => ({
 
 describe("games api", () => {
   it("gets game by id", async () => {
-    vi.mocked(unwrap).mockResolvedValue({ id: "g1", status: "playing" });
-    const game = await getGame("g1");
-    expect(game.id).toBe("g1");
+    vi.mocked(unwrap).mockResolvedValue({
+      game: { id: "g1", status: "playing" },
+      sync: { full: { id: "g1", status: "playing" } },
+    });
+    const payload = await getGame("g1");
+    expect(payload.game.id).toBe("g1");
   });
 
   it("plays card", async () => {
-    vi.mocked(unwrap).mockResolvedValue({ id: "g1", playCount: 2 });
-    await playCard("g1");
+    vi.mocked(unwrap).mockResolvedValue({ sync: { ti: 1, pc: 2 } });
+    const sync = await playCard("g1");
+    expect(sync).toEqual({ ti: 1, pc: 2 });
     expect(unwrap).toHaveBeenCalledWith(
       expect.objectContaining({ method: "POST", url: "/games/g1/play-card" }),
     );
   });
 
   it("rings bell", async () => {
-    vi.mocked(unwrap).mockResolvedValue({ id: "g1" });
+    vi.mocked(unwrap).mockResolvedValue({ sync: { bc: 1 } });
     await ringBell("g1");
     expect(unwrap).toHaveBeenCalledWith(
       expect.objectContaining({ url: "/games/g1/ring-bell" }),

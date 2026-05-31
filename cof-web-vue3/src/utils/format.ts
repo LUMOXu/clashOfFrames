@@ -1,13 +1,22 @@
-export function fmtNum(value: number | undefined | null): string {
+export function fmtNum(value: number | undefined | null | unknown): string {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
-export function fmtPct(value: number | undefined | null): string {
+export function fmtPct(value: number | undefined | null | unknown): string {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
-  return `${Math.round(n * 100)}%`;
+  const percent = n * 100;
+  const rounded = Math.round(percent * 100) / 100;
+  return `${String(rounded).replace(/\.?0+$/, "")}%`;
+}
+
+export function formatDate(value: unknown): string {
+  if (value === null || value === undefined) return "-";
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("zh-CN", { hour12: false });
 }
 
 export function isGodComputer(computer: { id?: string; name?: string }): boolean {

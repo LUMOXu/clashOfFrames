@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, toRef } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onMounted, onUnmounted, toRef, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import GameTable from "@/components/game/GameTable.vue";
 import GameAlert from "@/components/game/GameAlert.vue";
@@ -8,12 +8,14 @@ import GameAnimation from "@/components/game/GameAnimation.vue";
 import GameResultModal from "@/components/game/GameResultModal.vue";
 import RoomChat from "@/components/RoomChat.vue";
 import { unlockGameAudio } from "@/composables/useGameAudio";
+import { formatGameLog } from "@/utils/formatGameLog";
 import { useTurnBanner } from "@/composables/useTurnBanner";
 import { useAuthStore } from "@/stores/authStore";
 import { useGameStore } from "@/stores/gameStore";
 import { useRoomStore } from "@/stores/roomStore";
 
 const route = useRoute();
+const router = useRouter();
 const auth = useAuthStore();
 const gameStore = useGameStore();
 const roomStore = useRoomStore();
@@ -46,26 +48,52 @@ const canRing = computed(
   () => Boolean(self.value && game.value?.status === "playing" && !self.value.eliminated && !locked.value),
 );
 
-const { turnTitle, turnDetail, globalTurnHint } = useTurnBanner(game, toRef(() => auth.clientId), locked);
+const { turnTitle, turnDetail } = useTurnBanner(game, toRef(() => auth.clientId), locked);
 
 const chatMessages = computed(() => roomStore.currentRoom?.chatMessages ?? []);
+const gameLoading = computed(() => game.value?.status === "loading");
 
 function onFirstInteraction(): void {
   void unlockGameAudio();
 }
 
-onMounted(async () => {
-  const roomId = String(route.params.roomId || roomStore.activeRoomId || "");
-  if (auth.token) {
-    gameStore.requestLoad(roomId || undefined, gameId.value || undefined);
-    if (gameId.value) {
-      try {
-        await gameStore.loadGame(gameId.value);
-      } catch {
-        /* offline dev */
-      }
+async function ensureGameLoaded(): Promise<void> {
+  const rid = String(route.params.roomId || roomStore.activeRoomId || "");
+  if (!auth.token) return;
+  gameStore.requestLoad(rid || undefined, gameId.value || undefined);
+  if (rid) {
+    try {
+      await roomStore.refreshRoom(rid);
+    } catch {
+      /* ignore */
     }
   }
+  const gid = gameId.value || roomStore.currentRoom?.gameId;
+  if (gid) {
+    try {
+      await gameStore.loadGame(gid);
+    } catch {
+      /* offline dev */
+    }
+  }
+}
+
+watch(
+  () => game.value?.status,
+  (status) => {
+    const rid = String(route.params.roomId || roomStore.activeRoomId || "");
+    if (status === "loading" && rid) {
+      void router.replace({
+        name: "loading",
+        params: { roomId: rid },
+        query: gameId.value ? { gameId: gameId.value } : undefined,
+      });
+    }
+  },
+);
+
+onMounted(async () => {
+  await ensureGameLoaded();
   window.addEventListener("pointerdown", onFirstInteraction, { once: true });
   window.addEventListener("keydown", onFirstInteraction, { once: true });
 });
@@ -93,9 +121,9 @@ async function onContinue(): Promise<void> {
 <template>
   <AppShell immersive>
     <main class="page game-page">
-      <p v-if="globalTurnHint" class="game-turn-hint muted">{{ globalTurnHint }}</p>
+      <section v-if="gameLoading" class="center-message game-loading-banner muted">游戏加载中…</section>
       <GameTable
-        v-if="game"
+        v-else-if="game && (game.players?.length ?? 0) > 0"
         :players="game.players || []"
         :self-id="auth.clientId"
         :current-id="current?.clientId"
@@ -128,10 +156,14 @@ async function onContinue(): Promise<void> {
           <GameResultModal :game="game" :self-id="auth.clientId" @continue="onContinue" />
         </template>
       </GameTable>
-      <section v-else class="center-message muted">加载对局中…</section>
+      <section v-else class="center-message game-table-fallback muted">
+        {{ game ? "等待对局数据同步…" : "加载对局中…" }}
+      </section>
       <section class="game-bottom">
         <div class="log-area">
-          <div v-for="(log, i) in game?.logs || []" :key="log.id || i">{{ log.text }}</div>
+          <div v-for="(log, i) in game?.logs || []" :key="log.id || i" class="log-line">
+            {{ formatGameLog(log) }}
+          </div>
         </div>
         <RoomChat
           v-if="roomStore.activeRoomId"

@@ -193,21 +193,25 @@ public class RoomController {
         if (room.gameId == null) {
             return ApiResponse.ok(Map.of("room", roomService.summary(room)));
         }
+        String statusBefore = gameRuntimeService.getRequired(room.gameId).game.status;
         PublicGame game = gameRuntimeService.updateLoadingProgress(
                 room.gameId,
                 AuthContext.get().clientId.toString(),
                 body,
                 room);
         roomService.save(room);
-        safeBroadcast(room, game);
+        safeBroadcast(room, game, statusBefore);
         return ApiResponse.ok(Map.of("room", roomService.summary(room), "game", game));
     }
 
-    private void safeBroadcast(RoomState room, PublicGame game) {
+    private void safeBroadcast(RoomState room, PublicGame game, String statusBefore) {
         try {
             broadcastService.broadcastRoom(room);
             if (game != null) {
                 broadcastService.broadcastGameSync(game);
+                if ("loading".equals(statusBefore) && "playing".equals(game.status)) {
+                    broadcastService.broadcastAudio(room.id, game.id, "new-game");
+                }
             }
         } catch (Exception ex) {
             // 广播失败不应阻断加载进度 API

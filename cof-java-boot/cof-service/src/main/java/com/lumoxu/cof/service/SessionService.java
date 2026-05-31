@@ -20,10 +20,12 @@ public class SessionService {
     public static final Duration SESSION_TTL = Duration.ofDays(7);
 
     private final JsonRedisOps redis;
+    private final PlayerPresenceService playerPresenceService;
     private final SecureRandom random = new SecureRandom();
 
-    public SessionService(JsonRedisOps redis) {
+    public SessionService(JsonRedisOps redis, PlayerPresenceService playerPresenceService) {
         this.redis = redis;
+        this.playerPresenceService = playerPresenceService;
     }
 
     public String createSession(UUID clientId, String username) {
@@ -43,6 +45,7 @@ public class SessionService {
         long now = System.currentTimeMillis();
         record.lastSeenAt = now;
         redis.set(RedisKeys.session(token), record, SESSION_TTL);
+        playerPresenceService.touchConnected(record.clientId.toString());
         return new TokenPayload(token, record.clientId, record.username, record.createdAt, record.lastSeenAt);
     }
 

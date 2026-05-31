@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 import { useAuthStore } from "@/stores/authStore";
+import { useGameStore } from "@/stores/gameStore";
 import { useRoomStore } from "@/stores/roomStore";
 
 const routes: RouteRecordRaw[] = [
@@ -140,17 +141,22 @@ router.beforeEach(async (to) => {
       return { name: "rooms" };
     }
     roomStore.activeRoomId = roomId;
+    const gameStore = useGameStore();
     const status = roomStore.currentRoom?.status;
+    const gameStatus = gameStore.currentGame?.status;
     if (to.name === "waiting" && status && status !== "waiting") {
-      if (status === "loading") {
+      if (status === "loading" || gameStatus === "loading") {
         return { name: "loading", params: { roomId }, query: to.query };
       }
-      if (status === "playing" || status === "loading") {
+      if (status === "playing" && gameStatus === "playing") {
         return { name: "game", params: { roomId }, query: to.query };
       }
     }
-    if (to.name === "loading" && status === "playing") {
+    if (to.name === "loading" && status === "playing" && gameStatus === "playing") {
       return { name: "game", params: { roomId }, query: to.query };
+    }
+    if (to.name === "game" && (status === "loading" || gameStatus === "loading")) {
+      return { name: "loading", params: { roomId }, query: to.query };
     }
     if (to.name === "game" && status === "waiting") {
       return { name: "waiting", params: { roomId } };

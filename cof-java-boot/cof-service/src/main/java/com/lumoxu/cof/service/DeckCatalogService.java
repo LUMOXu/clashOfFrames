@@ -148,6 +148,11 @@ public class DeckCatalogService {
             entry.put("author", pmv.author);
             entry.put("description", pmv.description);
             entry.put("link", pmv.link);
+            CofDeck deck = pmv.deckId != null ? deckMapper.selectById(pmv.deckId) : null;
+            if (deck != null) {
+                entry.put("libraryName", deck.name);
+                entry.put("libraryId", deck.folderName != null ? deck.folderName : String.valueOf(deck.id));
+            }
             index.add(entry);
         }
         index.sort(Comparator
@@ -205,7 +210,7 @@ public class DeckCatalogService {
         for (CofCard row : cardMapper.listByDeckId(deck.id)) {
             CardLibraryDto.CardDto card = new CardLibraryDto.CardDto();
             card.id = row.cardUid;
-            card.libraryId = String.valueOf(deck.id);
+            card.libraryId = publicLibraryId(deck);
             card.fileName = row.fileName;
             card.pmvId = row.pmvId;
             card.pmvName = pmvNames.getOrDefault(row.pmvId, "PMV " + row.pmvId);
@@ -217,9 +222,16 @@ public class DeckCatalogService {
         return dto;
     }
 
+    private static String publicLibraryId(CofDeck deck) {
+        if (deck.folderName != null && !deck.folderName.isBlank()) {
+            return deck.folderName;
+        }
+        return String.valueOf(deck.id);
+    }
+
     private CardLibraryDto toSummary(CofDeck deck) {
         CardLibraryDto dto = new CardLibraryDto();
-        dto.id = String.valueOf(deck.id);
+        dto.id = publicLibraryId(deck);
         dto.folderName = deck.folderName;
         dto.name = deck.name;
         dto.title = deck.name;

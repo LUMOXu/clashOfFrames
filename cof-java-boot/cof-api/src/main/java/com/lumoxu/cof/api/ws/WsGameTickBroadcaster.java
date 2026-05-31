@@ -24,6 +24,9 @@ public class WsGameTickBroadcaster implements GameTickBroadcaster {
             if (outcome.rang) {
                 broadcastService.broadcastAudio(room.id, game.id, "ring-bell");
             }
+            if (outcome.justFinished) {
+                broadcastService.broadcastAudio(room.id, game.id, "end-game");
+            }
             broadcastService.broadcastGameSync(game);
         } catch (Exception ex) {
             // 广播失败不应影响 tick 持久化

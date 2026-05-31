@@ -2,6 +2,7 @@ package com.lumoxu.cof.api.controller;
 
 import com.lumoxu.cof.engine.Game;
 import com.lumoxu.cof.engine.PublicGame;
+import com.lumoxu.cof.api.ws.GameSyncTracker;
 import com.lumoxu.cof.api.ws.WsBroadcastService;
 import com.lumoxu.cof.service.GameRuntimeService;
 import com.lumoxu.cof.service.RoomService;
@@ -25,6 +26,8 @@ class GameControllerTest extends ControllerTestSupport {
     private RoomService roomService;
     @MockBean
     private WsBroadcastService broadcastService;
+    @MockBean
+    private GameSyncTracker syncTracker;
 
     @Test
     void getUnauthorized() throws Exception {
