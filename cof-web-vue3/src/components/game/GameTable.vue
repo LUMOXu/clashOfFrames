@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { playerLayouts, type LayoutPlayer } from "@/composables/playerLayouts";
+import { computed, toRef } from "vue";
+import { playerLayouts } from "@/composables/playerLayouts";
+import { useAnimationClock } from "@/composables/useAnimationClock";
+import type { PublicAnimation, PublicPlayer } from "@/types/api";
+import { stackStyle } from "@/utils/cardStack";
+import { visualDrawPile } from "@/utils/visualDrawPile";
 
 const props = defineProps<{
-  players: LayoutPlayer[];
+  players: PublicPlayer[];
   selfId: string;
   currentId?: string;
   canPlay: boolean;
   canRing: boolean;
+  lastAnimation?: PublicAnimation | null;
 }>();
 
 const emit = defineEmits<{
@@ -15,13 +20,40 @@ const emit = defineEmits<{
   ring: [];
 }>();
 
-const layouts = computed(() => playerLayouts(props.players, props.selfId));
+const animationRef = toRef(props, "lastAnimation");
+const now = useAnimationClock(animationRef);
+
+const layouts = computed(() =>
+  playerLayouts(
+    props.players.map((p) => ({
+      clientId: p.clientId,
+      username: p.username,
+      connected: p.connected,
+      eliminated: p.eliminated,
+      drawCount: p.drawCount,
+      displayCount: p.displayCount,
+    })),
+    props.selfId,
+  ),
+);
+
+const playerMap = computed(() => new Map(props.players.map((p) => [p.clientId, p])));
+
 const currentId = computed(() => props.currentId || "");
 
-/** 由后端 / Vite proxy 提供，勿写静态 src 以免被 Vite 当模块解析 */
 const tableLogoUrl = "/assets/logo.png";
 const bellUrl = "/assets/bell.png";
 const cardBackPlaceholderUrl = "/cards/placeholder-back.png";
+
+function drawCardsFor(playerId: string) {
+  const player = playerMap.value.get(playerId);
+  if (!player) return [];
+  return visualDrawPile(player, props.lastAnimation, now.value);
+}
+
+function displayCardsFor(playerId: string) {
+  return playerMap.value.get(playerId)?.displayPile || [];
+}
 </script>
 
 <template>
@@ -75,11 +107,13 @@ const cardBackPlaceholderUrl = "/cards/placeholder-back.png";
         @click="emit('play')"
       >
         <img
-          v-if="(item.player.drawCount ?? 0) > 0"
+          v-for="(card, index) in drawCardsFor(item.player.clientId)"
+          :key="card.id"
           class="mini-card"
-          :src="cardBackPlaceholderUrl"
+          :src="card.backUrl || cardBackPlaceholderUrl"
           alt=""
-          @error="($event.target as HTMLImageElement).style.display = 'none'"
+          :style="stackStyle(card.id, index, 'draw', true)"
+          @error="($event.target as HTMLImageElement).src = cardBackPlaceholderUrl"
         />
       </button>
     </div>
@@ -91,7 +125,14 @@ const cardBackPlaceholderUrl = "/cards/placeholder-back.png";
         :class="{ eliminated: item.player.eliminated }"
         :style="{ left: `${item.displayX}%`, top: `${item.displayY}%` }"
       >
-        <slot name="display" :player="item.player" />
+        <img
+          v-for="(card, index) in displayCardsFor(item.player.clientId)"
+          :key="card.id"
+          class="mini-card"
+          :src="card.imageUrl || card.backUrl || ''"
+          :alt="card.pmvName || ''"
+          :style="stackStyle(card.id, index, 'display', false)"
+        />
       </div>
     </div>
     <slot name="animation" />

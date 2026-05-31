@@ -28,24 +28,28 @@ class RoomServiceTest {
     private ComputerPlayerService computerPlayerService;
     @Mock
     private UserStatsService userStatsService;
+    private PlayerRoomService playerRoomService;
 
     private RoomService roomService;
 
     @BeforeEach
     void setUp() {
+        var redis = TestRedisSupport.memoryJsonRedis(new ObjectMapper());
+        playerRoomService = new PlayerRoomService(redis);
         roomService = new RoomService(
-                TestRedisSupport.memoryJsonRedis(new ObjectMapper()),
+                redis,
                 metaService,
                 deckCatalogService,
                 gameRuntimeService,
                 computerPlayerService,
-                userStatsService);
+                userStatsService,
+                playerRoomService);
         when(metaService.listLibraries()).thenReturn(List.of());
     }
 
     @Test
     void createRoomSetsHost() {
-        RoomState room = roomService.createRoom("host-1", GameSettings.defaultSettings(), List.of());
+        RoomState room = roomService.createRoom("host-1", "Host", GameSettings.defaultSettings(), List.of());
         assertEquals("host-1", room.hostId);
         assertEquals("waiting", room.status);
     }

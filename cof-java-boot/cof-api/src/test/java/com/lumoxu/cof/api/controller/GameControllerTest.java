@@ -2,7 +2,9 @@ package com.lumoxu.cof.api.controller;
 
 import com.lumoxu.cof.engine.Game;
 import com.lumoxu.cof.engine.PublicGame;
+import com.lumoxu.cof.api.ws.WsBroadcastService;
 import com.lumoxu.cof.service.GameRuntimeService;
+import com.lumoxu.cof.service.RoomService;
 import com.lumoxu.cof.service.model.GameStateBundle;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -19,6 +21,10 @@ class GameControllerTest extends ControllerTestSupport {
 
     @MockBean
     private GameRuntimeService gameRuntimeService;
+    @MockBean
+    private RoomService roomService;
+    @MockBean
+    private WsBroadcastService broadcastService;
 
     @Test
     void getUnauthorized() throws Exception {

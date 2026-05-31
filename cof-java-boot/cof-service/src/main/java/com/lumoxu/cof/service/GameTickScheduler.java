@@ -6,14 +6,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class GameTickScheduler {
 
-    private final GameRuntimeService gameRuntimeService;
+    private final GameTickOrchestrator orchestrator;
 
-    public GameTickScheduler(GameRuntimeService gameRuntimeService) {
-        this.gameRuntimeService = gameRuntimeService;
+    public GameTickScheduler(GameTickOrchestrator orchestrator) {
+        this.orchestrator = orchestrator;
     }
 
     @Scheduled(fixedRate = 100)
     public void tick() {
-        gameRuntimeService.tickAll();
+        orchestrator.tick();
     }
 }

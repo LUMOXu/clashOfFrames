@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -26,6 +27,12 @@ public class GlobalExceptionHandler {
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
         return ResponseEntity.status(status).body(ApiResponse.fail(ex.getErrorCode(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotFound(NoResourceFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(ErrorCode.NOT_FOUND, "接口不存在，请确认后端已重新编译并重启。"));
     }
 
     @ExceptionHandler(Exception.class)

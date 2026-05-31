@@ -32,6 +32,5 @@ describe("gameStore", () => {
     await store.loadGame("g1");
     store.clearGame();
     expect(store.currentGame).toBeNull();
-    expect(store.lastSync).toBeNull();
   });
 });

@@ -17,3 +17,11 @@ export async function fetchComputerPlayers(): Promise<{ players: unknown[] }> {
 export async function fetchPmvIndex(): Promise<unknown[]> {
   return unwrap<unknown[]>({ method: "GET", url: "/meta/pmv-index" });
 }
+
+export async function fetchCardViewer(libraryIds: string[]): Promise<import("@/types/api").CardViewerPayload> {
+  return unwrap({
+    method: "GET",
+    url: "/meta/card-viewer",
+    params: { libraryIds: libraryIds.join(",") },
+  });
+}

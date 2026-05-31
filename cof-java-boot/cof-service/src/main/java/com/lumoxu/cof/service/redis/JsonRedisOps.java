@@ -6,7 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class JsonRedisOps {
 
@@ -57,5 +60,21 @@ public class JsonRedisOps {
 
     public void delete(String key) {
         redis.delete(key);
+    }
+
+    public void setAdd(String key, String member) {
+        redis.opsForSet().add(key, member);
+    }
+
+    public void setRemove(String key, String member) {
+        redis.opsForSet().remove(key, member);
+    }
+
+    public Set<String> setMembers(String key) {
+        Set<String> members = redis.opsForSet().members(key);
+        if (members == null || members.isEmpty()) {
+            return Collections.emptySet();
+        }
+        return members.stream().filter(m -> m != null && !m.isBlank()).collect(Collectors.toSet());
     }
 }

@@ -31,6 +31,14 @@ public class CofImportRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
+        try {
+            int computers = computerPlayerImportService.importFromDefaultLocations();
+            if (computers > 0) {
+                log.info("Synced {} computer player profile(s) into PostgreSQL.", computers);
+            }
+        } catch (Exception ex) {
+            log.warn("Computer player config sync skipped: {}", ex.getMessage());
+        }
         if (args.containsOption("import-decks")) {
             int count = deckCatalogImportService.importAllDecks();
             log.info("Imported {} card deck(s) into PostgreSQL.", count);

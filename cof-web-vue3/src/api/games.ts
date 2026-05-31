@@ -1,5 +1,5 @@
 import { unwrap } from "./client";
-import type { PublicGame } from "@/types/api";
+import type { PublicGame, RoomSummary } from "@/types/api";
 
 export async function getGame(gameId: string): Promise<PublicGame> {
   return unwrap<PublicGame>({
@@ -19,5 +19,12 @@ export async function ringBell(gameId: string): Promise<PublicGame> {
   return unwrap<PublicGame>({
     method: "POST",
     url: `/games/${encodeURIComponent(gameId)}/ring-bell`,
+  });
+}
+
+export async function continueGame(gameId: string): Promise<{ room: RoomSummary; game: PublicGame }> {
+  return unwrap({
+    method: "POST",
+    url: `/games/${encodeURIComponent(gameId)}/continue`,
   });
 }

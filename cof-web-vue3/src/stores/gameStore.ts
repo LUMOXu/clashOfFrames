@@ -2,16 +2,18 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import * as gamesApi from "@/api/games";
 import * as roomsApi from "@/api/rooms";
-import { GameSocket, parseSyncMessage } from "@/ws/gameSocket";
-import type { PublicGame } from "@/types/api";
-import type { ParsedSyncMessage } from "@/types/ws";
+import { applyGameSync } from "@/utils/applyGameSync";
+import { handleAudioEvent } from "@/composables/useGameAudio";
+import { GameSocket } from "@/ws/gameSocket";
+import type { PublicGame, RoomSummary } from "@/types/api";
+import type { WsMessage } from "@/types/ws";
 
 export const useGameStore = defineStore("game", () => {
   const currentGame = ref<PublicGame | null>(null);
-  const lastSync = ref<ParsedSyncMessage | null>(null);
   const loadingProgress = ref({ loaded: 0, total: 0, done: false });
   const socket = new GameSocket();
   const connected = ref(false);
+  let roomHandler: ((room: RoomSummary) => void) | null = null;
 
   async function loadGame(gameId: string): Promise<PublicGame> {
     const game = await gamesApi.getGame(gameId);
@@ -37,21 +39,42 @@ export const useGameStore = defineStore("game", () => {
     return game;
   }
 
+  async function continueGame(gameId: string): Promise<void> {
+    const result = await gamesApi.continueGame(gameId);
+    currentGame.value = result.game;
+    if (roomHandler) {
+      roomHandler(result.room);
+    }
+  }
+
+  function onRoomUpdate(handler: (room: RoomSummary) => void): void {
+    roomHandler = handler;
+  }
+
   function connectSocket(token: string): void {
+    if (connected.value) return;
     socket.connect(token);
     connected.value = true;
-    socket.onMessage((message) => {
-      if (message.t.toUpperCase() === "SYNC") {
-        const parsed = parseSyncMessage(JSON.stringify(message));
-        if (parsed) {
-          lastSync.value = parsed;
-          if (currentGame.value && currentGame.value.id === parsed.gameId) {
-            currentGame.value = {
-              ...currentGame.value,
-              turnIndex: parsed.turnIndex,
-              playCount: parsed.playCount,
-            };
-          }
+    socket.onMessage((message: WsMessage) => {
+      const type = message.t?.toUpperCase();
+      if (type === "SYNC" && message.g) {
+        if (!currentGame.value || currentGame.value.id === message.g) {
+          currentGame.value = applyGameSync(currentGame.value, message.sync) ?? currentGame.value;
+        }
+      }
+      if (type === "ROOM" && message.room) {
+        const room = message.room as RoomSummary;
+        if (roomHandler) roomHandler(room);
+        if (!room.gameId) {
+          clearGame();
+        } else if (!currentGame.value || currentGame.value.id !== room.gameId) {
+          void loadGame(room.gameId);
+        }
+      }
+      if (type === "AUDIO") {
+        const roomId = message.r;
+        if (!roomId || !currentGame.value?.roomId || roomId === currentGame.value.roomId) {
+          handleAudioEvent(message.au);
         }
       }
     });
@@ -63,11 +86,7 @@ export const useGameStore = defineStore("game", () => {
   }
 
   function requestLoad(roomId?: string, gameId?: string): void {
-    socket.send({
-      t: "LOAD",
-      r: roomId,
-      g: gameId,
-    });
+    socket.send({ t: "LOAD", r: roomId, g: gameId });
   }
 
   function setLoadingProgress(loaded: number, total: number, done = false): void {
@@ -76,24 +95,23 @@ export const useGameStore = defineStore("game", () => {
 
   function clearGame(): void {
     currentGame.value = null;
-    lastSync.value = null;
     loadingProgress.value = { loaded: 0, total: 0, done: false };
-    disconnectSocket();
   }
 
   return {
     currentGame,
-    lastSync,
     loadingProgress,
     connected,
     loadGame,
     startGame,
     playCard,
     ringBell,
+    continueGame,
     connectSocket,
     disconnectSocket,
     requestLoad,
     setLoadingProgress,
     clearGame,
+    onRoomUpdate,
   };
 });

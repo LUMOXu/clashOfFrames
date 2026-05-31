@@ -4,6 +4,7 @@ import { useAuthStore } from "@/stores/authStore";
 
 defineProps<{
   title?: string;
+  immersive?: boolean;
 }>();
 
 const route = useRoute();
@@ -15,7 +16,7 @@ async function onLogout(): Promise<void> {
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="{ 'app-immersive': immersive }">
     <header class="topbar">
       <div class="brand">
         <strong>帧封相对</strong>
@@ -29,7 +30,7 @@ async function onLogout(): Promise<void> {
       </div>
     </header>
     <slot />
-    <footer class="app-footer">
+    <footer v-if="!immersive" class="app-footer">
       Version 1.1, Built by LUMO_Xu &amp; DrowningYu with good vibes.
     </footer>
   </div>

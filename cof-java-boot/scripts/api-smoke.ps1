@@ -64,10 +64,20 @@ Test-Api "GET bootstrap authed" GET "/api/v1/session/bootstrap" -Headers $auth |
 $create = Test-Api "POST create room" POST "/api/v1/rooms" -Headers $auth -Body '{"settings":{"minPlayers":2,"maxPlayers":8,"isPublic":true}}'
 $roomId = $create.data.room.id
 
-Test-Api "GET list rooms" GET "/api/v1/rooms" -Headers $auth | Out-Null
+Test-Api "GET list rooms" GET "/api/v1/rooms?all=1" -Headers $auth | Out-Null
 Test-Api "PATCH room settings" PATCH "/api/v1/rooms/$roomId/settings" -Headers $auth -Body '{"settings":{"minPlayers":2,"maxPlayers":8,"isPublic":true}}' | Out-Null
 Test-Api "GET room assets" GET "/api/v1/assets/rooms/$roomId" -Headers $auth | Out-Null
+Test-Api "GET card-viewer" GET "/api/v1/meta/card-viewer" -Headers $auth | Out-Null
+Test-Api "POST start-vote" POST "/api/v1/rooms/$roomId/start-vote" -Headers $auth | Out-Null
+Test-Api "POST chat" POST "/api/v1/rooms/$roomId/chat" -Headers $auth -Body '{"message":"hi"}' | Out-Null
 Test-Api "GET profile" GET "/api/v1/profile/$($reg.data.player.clientId)" -Headers $auth | Out-Null
+
+$start = Test-Api "POST start game" POST "/api/v1/rooms/$roomId/start" -Headers $auth
+if ($start -and $start.data.game.id) {
+    $gid = $start.data.game.id
+    Test-Api "GET game" GET "/api/v1/games/$gid" -Headers $auth | Out-Null
+    Test-Api "POST loading-progress" POST "/api/v1/rooms/$roomId/loading-progress" -Headers $auth -Body '{"loaded":1,"total":1,"done":true}' | Out-Null
+}
 
 Test-Api "POST logout" POST "/api/v1/auth/logout" -Headers $auth | Out-Null
 

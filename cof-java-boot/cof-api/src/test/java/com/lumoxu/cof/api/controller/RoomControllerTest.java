@@ -1,5 +1,7 @@
 package com.lumoxu.cof.api.controller;
 
+import com.lumoxu.cof.api.ws.WsBroadcastService;
+import com.lumoxu.cof.engine.GameSettings;
 import com.lumoxu.cof.service.GameRuntimeService;
 import com.lumoxu.cof.service.RoomService;
 import com.lumoxu.cof.service.model.RoomState;
@@ -27,6 +29,8 @@ class RoomControllerTest extends ControllerTestSupport {
     private RoomService roomService;
     @MockBean
     private GameRuntimeService gameRuntimeService;
+    @MockBean
+    private WsBroadcastService broadcastService;
 
     @Test
     void listRequiresAuth() throws Exception {
@@ -44,7 +48,7 @@ class RoomControllerTest extends ControllerTestSupport {
     void createOk() throws Exception {
         RoomState room = new RoomState();
         room.id = "r1";
-        when(roomService.createRoom(anyString(), any(), anyList())).thenReturn(room);
+        when(roomService.createRoom(anyString(), anyString(), any(GameSettings.class), anyList())).thenReturn(room);
         when(roomService.summary(any())).thenReturn(Map.of("id", "r1"));
         mockMvc.perform(post("/api/v1/rooms")
                         .header("Authorization", bearer())

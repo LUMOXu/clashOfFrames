@@ -1,5 +1,6 @@
 package com.lumoxu.cof.api.controller;
 
+import com.lumoxu.cof.service.CardViewerService;
 import com.lumoxu.cof.service.ComputerPlayerService;
 import com.lumoxu.cof.service.MetaService;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,8 @@ class MetaControllerTest extends ControllerTestSupport {
     private MetaService metaService;
     @MockBean
     private ComputerPlayerService computerPlayerService;
+    @MockBean
+    private CardViewerService cardViewerService;
 
     @Test
     void cardLibrariesOk() throws Exception {

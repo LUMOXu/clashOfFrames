@@ -1,9 +1,22 @@
 <script setup lang="ts">
-import { RouterLink } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import { useRoomStore } from "@/stores/roomStore";
 
 const roomStore = useRoomStore();
+const router = useRouter();
+
+function returnToRoom(): void {
+  const room = roomStore.currentRoom;
+  if (!room) return;
+  const name =
+    room.status === "playing" ? "game" : room.status === "loading" ? "loading" : "waiting";
+  void router.push({
+    name,
+    params: { roomId: room.id },
+    query: room.gameId ? { gameId: room.gameId } : undefined,
+  });
+}
 </script>
 
 <template>
@@ -18,6 +31,9 @@ const roomStore = useRoomStore();
           PMV德国心脏病——点击牌堆出牌，如果观察到翻开的牌有两张来自一个PMV，立刻按铃！
         </div>
         <div class="menu-grid">
+          <button v-if="roomStore.currentRoom" class="primary" type="button" @click="returnToRoom">
+            返回房间
+          </button>
           <RouterLink :to="{ name: 'create-room' }"><button class="primary" type="button">创建房间</button></RouterLink>
           <RouterLink :to="{ name: 'join-room' }"><button type="button">加入房间</button></RouterLink>
           <RouterLink :to="{ name: 'rooms' }"><button type="button">查看房间</button></RouterLink>

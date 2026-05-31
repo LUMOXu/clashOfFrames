@@ -62,6 +62,14 @@ body.game-route::before {
   opacity: 0;
 }
 
+body.game-route,
+body.game-route #app {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
 #app {
   min-height: 100vh;
   position: relative;
@@ -300,6 +308,70 @@ label {
   border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 8px;
   padding: 6px 8px;
+}
+
+.computer-manager {
+  margin-top: 12px;
+}
+
+.computer-manager-hint {
+  font-size: 13px;
+  margin: -6px 0 10px;
+}
+
+.computer-info {
+  min-width: 0;
+}
+
+.muted-inline {
+  font-size: 12px;
+  margin-left: 6px;
+}
+
+.create-room-form.grid,
+.room-options-form.grid {
+  display: grid;
+  gap: 14px;
+}
+
+.advanced-settings h3,
+.vote-panel h3 {
+  grid-column: 1 / -1;
+  margin: 0 0 4px;
+}
+
+.waiting-layout {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  margin-top: 12px;
+}
+
+.waiting-main {
+  display: grid;
+  gap: 14px;
+}
+
+.player-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.player-label {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.waiting-chat {
+  min-height: 320px;
+}
+
+@media (max-width: 900px) {
+  .waiting-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .god-name {
@@ -606,18 +678,41 @@ th button {
   font-size: 12px;
 }
 
-.game-shell {
+.app-immersive {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-immersive > :not(.topbar):not(.app-footer) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.game-page {
   display: grid;
-  grid-template-rows: 74% 26%;
-  height: calc(100vh - 109px);
+  grid-template-rows: auto minmax(0, 1fr) minmax(120px, 26vh);
+  height: 100%;
+  margin: 0;
   max-width: none;
+  overflow: hidden;
   padding: 0;
+  width: 100%;
+}
+
+.game-turn-hint {
+  background: rgba(8, 11, 8, .72);
+  font-size: 13px;
+  margin: 0;
+  padding: 6px 12px;
+  text-align: center;
 }
 
 .table-area {
-  min-height: 460px;
+  min-height: 0;
   position: relative;
-  overflow: visible;
+  overflow: hidden;
   background:
     radial-gradient(circle at 50% 48%, rgba(230, 196, 93, .11), transparent 23rem),
     linear-gradient(140deg, #2c3c30, #18241d);
@@ -627,11 +722,14 @@ th button {
   border-top: 1px solid rgba(255, 255, 255, .12);
   display: flex;
   min-height: 0;
+  overflow: hidden;
 }
 
 .log-area {
   flex: 1 1 58%;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 12px 18px;
   background: rgba(12, 15, 12, .86);
 }
@@ -649,12 +747,33 @@ th button {
 
 .game-chat {
   border-bottom: 0;
+  border-left: 1px solid rgba(255, 255, 255, .12);
   border-radius: 0;
   border-right: 0;
   border-top: 0;
   flex: 0 0 42%;
+  grid-template-rows: minmax(0, 1fr) auto;
   margin-top: 0;
   min-height: 0;
+  overflow: hidden;
+}
+
+.game-chat .chat-messages {
+  min-height: 0;
+}
+
+.chat-line {
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.turn-detail {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  margin-top: 2px;
 }
 
 .chat-area h3 {
@@ -663,6 +782,18 @@ th button {
 
 .chat-messages {
   overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.game-chat .chat-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.game-chat .chat-form input {
+  flex: 1;
+  min-height: 38px;
+  resize: none;
 }
 
 .chat-form {

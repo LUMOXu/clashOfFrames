@@ -28,6 +28,15 @@ public class GameSyncEncoder {
         if (previous.turnIndex != current.turnIndex) {
             delta.put("ti", current.turnIndex);
         }
+        if (previous.turnDeadlineAt != current.turnDeadlineAt) {
+            delta.put("td", current.turnDeadlineAt);
+        }
+        if (previous.turnAvailableAt != current.turnAvailableAt) {
+            delta.put("ta", current.turnAvailableAt);
+        }
+        if (previous.lockedUntil != current.lockedUntil) {
+            delta.put("lu", current.lockedUntil);
+        }
         if (previous.playCount != current.playCount) {
             delta.put("pc", current.playCount);
         }

@@ -1,6 +1,5 @@
 package com.lumoxu.cof.api.ws;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumoxu.cof.common.auth.TokenPayload;
 import com.lumoxu.cof.common.ws.WsMessage;
@@ -15,9 +14,6 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 @Component
 public class GameWebSocketHandler extends TextWebSocketHandler {
 
@@ -25,20 +21,19 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private final SessionService sessionService;
     private final GameRuntimeService gameRuntimeService;
     private final RoomService roomService;
-    private final GameSyncEncoder syncEncoder;
-    private final Map<String, PublicGame> lastSnapshots = new ConcurrentHashMap<>();
+    private final WsBroadcastService broadcastService;
 
     public GameWebSocketHandler(
             ObjectMapper objectMapper,
             SessionService sessionService,
             GameRuntimeService gameRuntimeService,
             RoomService roomService,
-            GameSyncEncoder syncEncoder) {
+            WsBroadcastService broadcastService) {
         this.objectMapper = objectMapper;
         this.sessionService = sessionService;
         this.gameRuntimeService = gameRuntimeService;
         this.roomService = roomService;
-        this.syncEncoder = syncEncoder;
+        this.broadcastService = broadcastService;
     }
 
     @Override
@@ -51,8 +46,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         switch (incoming.t.toUpperCase()) {
             case "PING" -> send(session, WsMessage.ofType("PING"));
             case "LOAD" -> handleLoad(session, incoming, auth);
-            case "PLAY" -> handlePlay(session, incoming, auth);
-            case "RING" -> handleRing(session, incoming, auth);
+            case "PLAY" -> handlePlay(incoming, auth);
+            case "RING" -> handleRing(incoming, auth);
             default -> {
                 WsMessage err = WsMessage.ofType("ERR");
                 err.err = "unknown type";
@@ -62,42 +57,40 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void handleLoad(WebSocketSession session, WsMessage incoming, TokenPayload auth) throws Exception {
-        if (incoming.r != null) {
-            RoomState room = roomService.getRequired(incoming.r);
-            WsMessage roomMsg = WsMessage.ofType("ROOM");
-            roomMsg.r = room.id;
-            roomMsg.room = objectMapper.valueToTree(roomService.summary(room));
-            send(session, roomMsg);
+        String roomId = incoming.r;
+        String gameId = incoming.g;
+        if (roomId == null) {
+            roomService.findRoomForPlayer(auth.clientId.toString()).ifPresent(room -> {
+                session.getAttributes().put("roomId", room.id);
+            });
+            roomId = (String) session.getAttributes().get("roomId");
         }
-        if (incoming.g != null) {
-            PublicGame game = gameRuntimeService.toPublicGame(gameRuntimeService.getRequired(incoming.g).game);
-            pushSync(session, game);
+        if (gameId == null && roomId != null) {
+            RoomState room = roomService.get(roomId).orElse(null);
+            if (room != null) {
+                gameId = room.gameId;
+            }
+        }
+        broadcastService.registerSession(session, roomId, gameId);
+        if (roomId != null) {
+            RoomState room = roomService.getRequired(roomId);
+            broadcastService.broadcastRoom(room);
+        }
+        if (gameId != null) {
+            PublicGame game = gameRuntimeService.toPublicGame(gameRuntimeService.getRequired(gameId).game);
+            broadcastService.broadcastGameSync(game);
         }
     }
 
-    private void handlePlay(WebSocketSession session, WsMessage incoming, TokenPayload auth) throws Exception {
+    private void handlePlay(WsMessage incoming, TokenPayload auth) throws Exception {
         PublicGame game = gameRuntimeService.playCard(incoming.g, auth.clientId.toString());
-        pushSync(session, game);
+        broadcastService.broadcastGameSync(game);
     }
 
-    private void handleRing(WebSocketSession session, WsMessage incoming, TokenPayload auth) throws Exception {
+    private void handleRing(WsMessage incoming, TokenPayload auth) throws Exception {
         PublicGame game = gameRuntimeService.ringBell(incoming.g, auth.clientId.toString());
-        pushSync(session, game);
-        WsMessage audio = WsMessage.ofType("AUDIO");
-        audio.au = "ring-bell";
-        audio.g = game.id;
-        audio.r = game.roomId;
-        send(session, audio);
-    }
-
-    public void pushSync(WebSocketSession session, PublicGame game) throws Exception {
-        PublicGame previous = lastSnapshots.put(session.getId(), game);
-        WsMessage sync = WsMessage.ofType("SYNC");
-        sync.g = game.id;
-        sync.ti = game.turnIndex;
-        sync.pc = Integer.toString(game.playCount);
-        sync.sync = syncEncoder.encodeDelta(previous, game);
-        send(session, sync);
+        broadcastService.broadcastGameSync(game);
+        broadcastService.broadcastAudio(game.roomId, game.id, "ring-bell");
     }
 
     private void send(WebSocketSession session, WsMessage message) throws Exception {
@@ -107,12 +100,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) {
-        lastSnapshots.remove(session.getId());
-    }
-
-    @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        lastSnapshots.remove(session.getId());
+        broadcastService.unregisterSession(session);
     }
 }

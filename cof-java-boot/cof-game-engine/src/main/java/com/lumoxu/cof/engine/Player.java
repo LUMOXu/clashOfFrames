@@ -25,4 +25,5 @@ public class Player {
     public Long eliminatedAt;
     public Integer rank;
     public PlayerStats stats = new PlayerStats();
+    public ComputerState computerState;
 }

@@ -15,6 +15,7 @@ export const useAuthStore = defineStore("auth", () => {
   const message = ref("");
 
   const isAuthenticated = computed(() => Boolean(token.value && player.value));
+  const clientId = computed(() => player.value?.clientId ?? "");
 
   function applyToken(next: string): void {
     token.value = next;
@@ -45,6 +46,16 @@ export const useAuthStore = defineStore("auth", () => {
       player.value = data.player ?? null;
       if (!data.player && token.value) {
         clearSession();
+      }
+      const { useRoomStore } = await import("@/stores/roomStore");
+      const { useGameStore } = await import("@/stores/gameStore");
+      const roomStore = useRoomStore();
+      const gameStore = useGameStore();
+      if (data.currentRoom) {
+        roomStore.setCurrentRoom(data.currentRoom);
+      }
+      if (data.currentGame) {
+        gameStore.currentGame = data.currentGame;
       }
       return data;
     } finally {
@@ -86,6 +97,7 @@ export const useAuthStore = defineStore("auth", () => {
     loading,
     message,
     isAuthenticated,
+    clientId,
     refreshBootstrap,
     login,
     register,
