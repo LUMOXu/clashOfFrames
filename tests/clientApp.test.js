@@ -70,6 +70,8 @@ globalThis.__helpers = {
   fmtPct: typeof fmtPct === "function" ? fmtPct : undefined,
   fmtNum: typeof fmtNum === "function" ? fmtNum : undefined,
   filterPmvIndexRows: typeof filterPmvIndexRows === "function" ? filterPmvIndexRows : undefined,
+  renderShell: typeof renderShell === "function" ? renderShell : undefined,
+  renderTable: typeof renderTable === "function" ? renderTable : undefined,
 };`, context);
   return context;
 }
@@ -228,6 +230,39 @@ test("result continue count and god labels ignore computers", () => {
 
   assert.match(context.__helpers.renderResult(game), /1\/1/);
   assert.match(context.__helpers.renderPlayerLabel({ username: "Slayer", godSlayer: true }), /god-slayer-name/);
+});
+
+test("god slayer styling is limited to player name render points", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  context.__app.route = { name: "home" };
+  context.__app.snapshot = {
+    player: { clientId: "one", username: "1", godSlayer: true },
+    currentRoom: null,
+    currentGame: null,
+    rooms: [],
+    cardLibraries: [],
+    computerPlayers: [],
+  };
+
+  const html = context.__helpers.renderShell();
+
+  assert.match(html, /<span class="pill"><span class="god-slayer-name">1<\/span><\/span>/);
+  assert.match(html, /Version 1\.1/);
+  assert.doesNotMatch(html, /Version <span class="god-slayer-name">1<\/span>\.1/);
+});
+
+test("table cells do not infer god slayer styling from matching numbers", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  context.__app.snapshot = { player: { username: "1", godSlayer: true } };
+  context.__app.profile = { username: "1", godSlayer: true };
+  context.__app.leaderboard = { players: [{ username: "1", godSlayer: true }] };
+
+  const html = context.__helpers.renderTable("players", [{ username: "1", wins: 1 }], [
+    ["username", "玩家", (row) => row.username],
+    ["wins", "胜场", (row) => row.wins],
+  ]);
+
+  assert.doesNotMatch(html, /<td><span class="god-slayer-name">1<\/span><\/td><td><span class="god-slayer-name">1<\/span><\/td>/);
 });
 
 test("chat render keeps the current draft through game refreshes", () => {

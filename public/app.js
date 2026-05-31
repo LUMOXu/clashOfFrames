@@ -184,7 +184,6 @@ function render() {
   app.rendering = true;
   root.innerHTML = content;
   app.rendering = false;
-  highlightGodSlayerNames(root);
   if (shouldRestoreChat) restoreChatFocus();
   if (shouldRestorePmvSearch) restorePmvSearchFocus();
   renderGodRewardModal();
@@ -232,57 +231,6 @@ function renderGodRewardModal() {
       </div>
     </div>
   `);
-}
-
-function godSlayerNames() {
-  const names = new Set();
-  const collect = (player) => {
-    if (player?.godSlayer && !player?.isComputer && player.username) names.add(String(player.username));
-  };
-  collect(app.snapshot?.player);
-  (app.snapshot?.rooms || []).forEach((room) => (room.players || []).forEach(collect));
-  (app.snapshot?.currentRoom?.players || []).forEach(collect);
-  (app.snapshot?.currentGame?.players || []).forEach(collect);
-  (app.snapshot?.currentGame?.resultInfo?.players || []).forEach(collect);
-  (app.leaderboard?.players || []).forEach(collect);
-  collect(app.profile);
-  return [...names].sort((a, b) => b.length - a.length);
-}
-
-function highlightGodSlayerNames(root) {
-  if (!root || !document.createTreeWalker) return;
-  const names = godSlayerNames();
-  if (!names.length) return;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = node.parentElement;
-      if (!parent || parent.closest(".god-slayer-name, input, textarea, script, style")) return NodeFilter.FILTER_REJECT;
-      return names.some((name) => node.nodeValue.includes(name)) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-    },
-  });
-  const nodes = [];
-  while (walker.nextNode()) nodes.push(walker.currentNode);
-  nodes.forEach((node) => {
-    const fragment = document.createDocumentFragment();
-    let text = node.nodeValue;
-    while (text) {
-      const match = names
-        .map((name) => ({ name, index: text.indexOf(name) }))
-        .filter((item) => item.index >= 0)
-        .sort((a, b) => a.index - b.index || b.name.length - a.name.length)[0];
-      if (!match) {
-        fragment.appendChild(document.createTextNode(text));
-        break;
-      }
-      if (match.index > 0) fragment.appendChild(document.createTextNode(text.slice(0, match.index)));
-      const span = document.createElement("span");
-      span.className = "god-slayer-name";
-      span.textContent = match.name;
-      fragment.appendChild(span);
-      text = text.slice(match.index + match.name.length);
-    }
-    node.parentNode.replaceChild(fragment, node);
-  });
 }
 
 function isChatInput(target) {
@@ -341,7 +289,7 @@ function renderShell() {
           <span>Clash of Frames</span>
         </div>
         <div class="top-actions">
-          <span class="pill">${escapeHtml(app.snapshot.player?.username || "未命名")}</span>
+          <span class="pill">${renderPlayerName(app.snapshot.player, "未命名")}</span>
           <button data-action="home">主页</button>
           <button data-action="profile">个人信息</button>
           <button data-action="logout">退出登录</button>
@@ -1267,7 +1215,7 @@ function renderProfile() {
     <main class="page">
       <section class="panel">
         <h2>个人信息</h2>
-        <p class="status-line">当前账号：${escapeHtml(profile.username || app.snapshot.player?.username || "")}</p>
+        <p class="status-line">当前账号：${renderPlayerName(profile || app.snapshot.player, "")}</p>
         <div class="menu-grid">
           <div class="card">参与 ${profile.gamesPlayed}</div>
           <div class="card">胜场 ${profile.wins}</div>
@@ -1533,9 +1481,6 @@ function renderTableHeader(value) {
 function renderTableCell(value) {
   if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "__html")) return value.__html;
   const text = String(value ?? "");
-  const godPlayer = [...(app.leaderboard?.players || []), app.profile, app.snapshot?.player]
-    .find((player) => player?.godSlayer && !player?.isComputer && player.username === text);
-  if (godPlayer) return renderPlayerName(godPlayer);
   return escapeHtml(text);
 }
 
