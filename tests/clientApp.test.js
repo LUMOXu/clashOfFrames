@@ -60,8 +60,16 @@ globalThis.__helpers = {
   libraryCopyLimit: typeof libraryCopyLimit === "function" ? libraryCopyLimit : undefined,
   formatChatLine: typeof formatChatLine === "function" ? formatChatLine : undefined,
   renderChat: typeof renderChat === "function" ? renderChat : undefined,
+  renderHome: typeof renderHome === "function" ? renderHome : undefined,
   renderResult: typeof renderResult === "function" ? renderResult : undefined,
   renderPlayerLabel: typeof renderPlayerLabel === "function" ? renderPlayerLabel : undefined,
+  renderRoomSettings: typeof renderRoomSettings === "function" ? renderRoomSettings : undefined,
+  handleFocusOut: typeof handleFocusOut === "function" ? handleFocusOut : undefined,
+  autoRouteFromState: typeof autoRouteFromState === "function" ? autoRouteFromState : undefined,
+  sortRows: typeof sortRows === "function" ? sortRows : undefined,
+  fmtPct: typeof fmtPct === "function" ? fmtPct : undefined,
+  fmtNum: typeof fmtNum === "function" ? fmtNum : undefined,
+  filterPmvIndexRows: typeof filterPmvIndexRows === "function" ? filterPmvIndexRows : undefined,
 };`, context);
   return context;
 }
@@ -184,6 +192,27 @@ test("client helpers format voting, copies, chat, and computer labels", () => {
   assert.match(context.__helpers.renderPlayerLabel({ username: "Bot", isComputer: true }), /Computer/);
 });
 
+test("home menu includes a prominent game introduction above the action buttons", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  context.__app.snapshot = { currentRoom: null };
+
+  const html = context.__helpers.renderHome();
+  const introIndex = html.indexOf("PMV德国心脏病");
+  const menuIndex = html.indexOf("menu-grid");
+
+  assert.ok(introIndex >= 0);
+  assert.ok(menuIndex > introIndex);
+  assert.match(html, /class="[^"]*game-intro/);
+});
+
+test("percentage formatting preserves visible decimals", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+
+  assert.equal(context.__helpers.fmtPct(0.98), "98%");
+  assert.equal(context.__helpers.fmtPct(0.005), "0.5%");
+  assert.equal(context.__helpers.fmtPct(0.0005), "0.05%");
+});
+
 test("result continue count and god labels ignore computers", () => {
   const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
   const game = {
@@ -208,4 +237,114 @@ test("chat render keeps the current draft through game refreshes", () => {
   const html = context.__helpers.renderChat({ chatMessages: [] }, "game");
 
   assert.match(html, /value="中文草稿"/);
+});
+
+test("chat draft is not cleared by a stale empty blur after rerender", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const target = {
+    value: "",
+    matches(selector) {
+      return selector === "[data-chat-input]";
+    },
+  };
+  context.__app.chat = { draft: "typing during refresh", focused: true, composing: false, pendingRender: false };
+
+  context.__helpers.handleFocusOut({ target });
+
+  assert.equal(context.__app.chat.draft, "typing during refresh");
+  assert.equal(context.__app.chat.focused, false);
+});
+
+test("room settings render keeps unsaved card copy draft across refreshes", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  context.__app.clientId = "host";
+  context.__app.route = { name: "settings", roomId: "1" };
+  const room = {
+    id: "1",
+    hostId: "host",
+    status: "waiting",
+    settings: {
+      libraryIds: ["lib"],
+      libraryCopies: { lib: 1 },
+      startVoteThresholdMode: "auto",
+      startVoteThreshold: null,
+    },
+    players: [],
+  };
+  context.__app.snapshot = {
+    cardLibraries: [{ id: "lib", name: "Lib", cardCount: 40, pmvCount: 10 }],
+    currentRoom: room,
+    rooms: [room],
+  };
+  context.__app.roomSettingsDraft = {
+    libraryIds: ["lib"],
+    libraryCopies: { lib: 2 },
+    startVoteThresholdMode: "auto",
+    startVoteThreshold: null,
+    allowEmptyBell: false,
+    randomBacks: false,
+    conflictResolution: true,
+    disconnectProtection: true,
+  };
+
+  const html = context.__helpers.renderRoomSettings();
+
+  assert.match(html, /name="libraryCopies\.lib"[^>]*value="2"/);
+});
+
+test("state refresh keeps host on the room settings page while room waits", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const room = {
+    id: "1",
+    hostId: "host",
+    status: "waiting",
+    gameId: null,
+    settings: { libraryIds: ["lib"], libraryCopies: { lib: 1 } },
+    players: [],
+  };
+  context.__app.clientId = "host";
+  context.__app.route = { name: "settings", roomId: "1" };
+  context.__app.snapshot = {
+    player: { clientId: "host" },
+    currentRoom: room,
+    currentGame: null,
+    rooms: [room],
+  };
+
+  context.__helpers.autoRouteFromState();
+
+  assert.equal(context.__app.route.name, "settings");
+  assert.equal(context.__app.route.roomId, "1");
+});
+
+test("empty leaderboard metrics render as dash and sort last", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const rows = [
+    { username: "Empty", winRate: null },
+    { username: "Low", winRate: 0.25 },
+    { username: "High", winRate: 0.75 },
+  ];
+
+  assert.equal(context.__helpers.fmtPct(null), "-");
+  assert.equal(context.__helpers.fmtNum(null), "-");
+  assert.deepEqual(
+    context.__helpers.sortRows(rows, { key: "winRate", dir: "desc" }).map((row) => row.username),
+    ["High", "Low", "Empty"],
+  );
+  assert.deepEqual(
+    context.__helpers.sortRows(rows, { key: "winRate", dir: "asc" }).map((row) => row.username),
+    ["Low", "High", "Empty"],
+  );
+});
+
+test("PMV index search is case insensitive across visible fields", () => {
+  const context = loadClientWithFetch(async () => ({ ok: true, json: async () => ({}) }));
+  const rows = [
+    { pmvId: 7, name: "Lose You Now", author: "LUMO_Xu", libraryName: "Base" },
+    { pmvId: 8, name: "Stay", author: "Shiron", libraryName: "Extra" },
+  ];
+
+  assert.deepEqual(context.__helpers.filterPmvIndexRows(rows, "lumo").map((row) => row.pmvId), [7]);
+  assert.deepEqual(context.__helpers.filterPmvIndexRows(rows, "STAY").map((row) => row.pmvId), [8]);
+  assert.deepEqual(context.__helpers.filterPmvIndexRows(rows, "8").map((row) => row.pmvId), [8]);
 });

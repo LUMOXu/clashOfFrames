@@ -1404,11 +1404,11 @@ function enrichStats(stats) {
     godSlayer: godSlayerForStats(stats),
     godRewardGameId: stats.godRewardGameId || null,
     godDefeatedAt: stats.godDefeatedAt || null,
-    winRate: gamesPlayed ? stats.wins / gamesPlayed : 0,
-    correctRate: rings ? stats.correctRings / rings : 0,
-    ringsPerGame: gamesPlayed ? rings / gamesPlayed : 0,
-    wonCardsPerGame: gamesPlayed ? stats.wonCards / gamesPlayed : 0,
-    averageRank: gamesPlayed ? stats.totalRank / gamesPlayed : 0,
+    winRate: gamesPlayed ? stats.wins / gamesPlayed : null,
+    correctRate: rings ? stats.correctRings / rings : null,
+    ringsPerGame: gamesPlayed ? rings / gamesPlayed : null,
+    wonCardsPerGame: gamesPlayed ? stats.wonCards / gamesPlayed : null,
+    averageRank: gamesPlayed ? stats.totalRank / gamesPlayed : null,
   };
 }
 
@@ -1501,9 +1501,13 @@ function publicLibraries(cardLibraries) {
   return cardLibraries.map((library) => ({
     id: library.id,
     name: library.name,
+    folderName: library.folderName || library.id,
     title: library.title,
     curator: library.curator,
     description: library.description,
+    version: library.version,
+    link: library.link,
+    metadata: library.metadata,
     backUrl: library.backUrl,
     cardCount: library.cardCount,
     pmvCount: library.pmvCount,
@@ -1527,6 +1531,7 @@ function cardViewerPayload(requestedIds, cardLibraries) {
     .update(JSON.stringify(libraries.map((library) => ({
       id: library.id,
       cardCount: library.cardCount,
+      metadata: library.metadata,
       cards: library.cards.map((card) => card.imageUrl),
     }))))
     .digest("hex")

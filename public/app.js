@@ -7,6 +7,8 @@ const app = {
   profile: null,
   leaderboard: null,
   pmvIndex: null,
+  pmvIndexSearch: "",
+  pmvSearchFocused: false,
   cardViewer: { loading: false, payload: null, key: "", selectedLibraryIds: [], loaded: 0, total: 0 },
   profileLoading: false,
   leaderboardLoading: false,
@@ -29,6 +31,10 @@ const app = {
   countdownTimer: null,
   resultReplay: { gameId: null, startedAt: 0 },
   chat: { draft: "", focused: false, composing: false, pendingRender: false },
+  roomSettingsDraft: null,
+  roomSettingsAutosaveTimer: null,
+  roomSettingsAutosaveSeq: 0,
+  roomSettingsSaving: false,
   rendering: false,
   backdropRouteName: "",
 };
@@ -144,13 +150,16 @@ function autoRouteFromState() {
   if (["waiting", "settings", "loading", "game"].includes(app.route.name)) {
     if (room.status === "loading") app.route = { name: "loading" };
     if (room.status === "playing" || room.status === "finished") app.route = { name: "game" };
-    if (room.status === "waiting" && (!game || game.status !== "playing")) app.route = { name: "waiting", roomId: room.id };
+    if (room.status === "waiting" && app.route.name !== "settings" && (!game || game.status !== "playing")) {
+      app.route = { name: "waiting", roomId: room.id };
+    }
   }
 }
 
 function setRoute(name, params = {}) {
   app.route = { name, ...params };
   app.message = "";
+  if (name !== "settings" || params.transfer) app.roomSettingsDraft = null;
   if (name === "profile") app.profile = null;
   if (name === "leaderboard") app.leaderboard = null;
   render();
@@ -171,11 +180,13 @@ function render() {
 
   const content = app.route.name === "auth" || !app.snapshot.player ? renderAuth() : renderShell();
   const shouldRestoreChat = app.chat.focused;
+  const shouldRestorePmvSearch = app.pmvSearchFocused;
   app.rendering = true;
   root.innerHTML = content;
   app.rendering = false;
   highlightGodSlayerNames(root);
   if (shouldRestoreChat) restoreChatFocus();
+  if (shouldRestorePmvSearch) restorePmvSearchFocus();
   renderGodRewardModal();
   if (app.route.name === "loading") beginPreload();
   if (app.route.name === "card-loading") beginCardViewerPreload();
@@ -276,6 +287,29 @@ function highlightGodSlayerNames(root) {
 
 function isChatInput(target) {
   return Boolean(target?.matches?.("[data-chat-input]"));
+}
+
+function pmvSearchInputElement(root = document) {
+  return root?.querySelector?.("[data-pmv-search]") || null;
+}
+
+function restorePmvSearchFocus() {
+  const input = pmvSearchInputElement();
+  if (!input) return;
+  input.focus({ preventScroll: true });
+  const end = input.value.length;
+  try {
+    input.setSelectionRange(end, end);
+  } catch { /* ignore unsupported input selection */ }
+}
+
+function isRoomSettingsControl(target) {
+  const form = target?.closest?.("form");
+  return form?.id === "room-settings-form" && Boolean(target.name);
+}
+
+function isPmvSearchInput(target) {
+  return Boolean(target?.matches?.("[data-pmv-search]"));
 }
 
 function syncBackdrop() {
@@ -386,16 +420,39 @@ function renderHome() {
       <section class="panel">
         <h2>主菜单</h2>
         ${room ? `<p class="status-line">当前房间：${escapeHtml(room.id)}，状态：${statusText(room.status)}</p>` : ""}
+        <div class="game-intro">PMV德国心脏病——点击牌堆出牌，如果观察到翻开的牌有两张来自一个PMV，立刻按铃！</div>
         <div class="menu-grid">
           <button class="primary" data-action="create">创建房间</button>
           <button data-action="join">加入房间</button>
           <button data-action="rooms">查看房间</button>
-          <button data-action="card-select">查看卡牌</button>
-          <button data-action="pmv-index">PMV id 查询</button>
-          <button data-action="rules">游戏规则</button>
           <button data-action="profile">个人信息</button>
           <button data-action="leaderboard">排行榜</button>
           ${room ? `<button data-action="go-current-room">返回当前房间</button><button class="danger" data-action="leave-room">退出房间</button>` : ""}
+        </div>
+      </section>
+      <section class="panel menu-info-panel">
+        <div>
+          <h3>详细说明</h3>
+          <p class="status-line">翻牌、按铃、淘汰与房间选项的完整说明，也包含网站各页面的功能介绍。</p>
+        </div>
+        <button data-action="rules">详细说明</button>
+      </section>
+      <section class="panel menu-info-panel">
+        <div>
+          <h3>卡组资料</h3>
+          <p class="status-line">不知道每张牌属于什么 PMV？打开这个页面吧。</p>
+        </div>
+        <div class="actions">
+          <button data-action="card-select">查看卡牌</button>
+        </div>
+      </section>
+      <section class="panel menu-info-panel">
+        <div>
+          <h3>卡组提交</h3>
+          <p class="status-line">想提交自己的卡组？请查看指南。</p>
+        </div>
+        <div class="actions">
+          <button data-action="pmv-index">卡组提交指南</button>
         </div>
       </section>
     </main>
@@ -470,7 +527,7 @@ function renderRooms() {
 }
 
 function renderRoomRow(room) {
-  const names = room.players.map((player) => player.username).join("、") || "无";
+  const names = room.players.map((player) => renderPlayerName(player)).join("、") || "无";
   const full = room.players.length >= room.settings.maxPlayers && room.status === "waiting";
   const libraries = libraryNamesForRoom(room).join("、") || "未选择";
   const options = settingTags(room.settings).join("、") || "默认规则";
@@ -484,7 +541,7 @@ function renderRoomRow(room) {
           <span>${room.players.length}/${room.settings.maxPlayers} 人，至少 ${room.settings.minPlayers} 人开局</span>
           <span>卡库：${escapeHtml(libraries)}</span>
           <span>选项：${escapeHtml(options)}</span>
-          <span>玩家：${escapeHtml(names)}</span>
+          <span>玩家：${names}</span>
         </div>
       </div>
       <button data-action="join-public-room" data-room="${escapeAttr(room.id)}" ${full ? "disabled" : ""}>加入</button>
@@ -513,7 +570,7 @@ function renderRules() {
   return `
     <main class="page">
       <section class="panel">
-        <h2>游戏规则</h2>
+        <h2>详细说明</h2>
         <div class="rules-grid">
           <section>
             <h3>基本流程</h3>
@@ -540,13 +597,24 @@ function renderRules() {
           </section>
           <section>
             <h3>主菜单</h3>
-            <p>创建房间会新建一个你担任房主的房间；加入房间用于输入房间 ID；查看房间列出公开房间和基本设置；个人信息和排行榜会显示本机服务器保存的战绩。</p>
+            <p>创建房间会新建一个你担任房主的房间；加入房间用于输入房间 ID；查看房间列出公开房间和基本设置。</p>
+            <p>个人信息展示你的历史战绩、按铃数据与战胜人机记录。排行榜展示所有玩家与人机的累计战绩，没有有效分母的数据会显示为 “-”。</p>
             <p>如果你已经在房间里，主菜单会出现返回当前房间和退出房间。一个账号同一时间只能在一个房间中。</p>
           </section>
           <section>
             <h3>对局界面</h3>
             <p>自己的玩家位固定在下方视角。高亮的未出牌堆表示当前轮到该玩家；如果轮到你，点击未出牌堆即可出牌。中央铃铛用于抢铃。</p>
             <p>左上角显示正确/错误按铃提示和观战状态。下方日志记录出牌、按铃、淘汰和结算信息。</p>
+          </section>
+          <section>
+            <h3>卡牌与卡组</h3>
+            <p>查看卡牌页面可以按卡组浏览所有截图、PMV id、作者、链接和卡背信息，方便对照每张牌来自哪个 PMV。</p>
+            <p>卡组提交指南说明 manifest.json、back.png 和 cards 文件夹的组织方式，并提供 PMV id 查询，避免不同卡组给同一个 PMV 重复编号。</p>
+          </section>
+          <section>
+            <h3>加载与同步</h3>
+            <p>开始游戏后会进入加载页，浏览器会预加载所选卡组的卡面、卡背和音效。加载完成后服务器同步进入对局。</p>
+            <p>房间聊天会随房间状态保存；页面因倒计时、出牌、按铃等事件刷新时，正在输入的草稿会保留在输入框中。</p>
           </section>
         </div>
         <div class="actions"><button data-action="home">返回</button></div>
@@ -588,14 +656,16 @@ function renderRoomSettings() {
   const room = currentRoom();
   if (!room) return missingRoom();
   if (app.route.transfer) return renderTransferHost(room);
+  const settings = roomSettingsForRender(room);
   return `
     <main class="page">
       <section class="panel">
         <h2>房间设置</h2>
         <form id="room-settings-form" class="grid">
-          ${renderLibraryPicker(app.snapshot.cardLibraries, room.settings.libraryIds, room.settings.libraryCopies)}
-          ${renderStartVoteSettings(room.settings)}
-          ${renderAdvancedSettings(room.settings)}
+          ${renderLibraryPicker(app.snapshot.cardLibraries, settings.libraryIds, settings.libraryCopies)}
+          ${renderStartVoteSettings(settings)}
+          ${renderAdvancedSettings(settings)}
+          ${app.roomSettingsSaving ? `<p class="status-line">正在保存设置...</p>` : ""}
           <div class="actions">
             <button class="primary" type="submit">保存设置</button>
             <button type="button" data-action="waiting">返回</button>
@@ -631,11 +701,19 @@ function renderTransferHost(room) {
 function renderComputerStats(computer) {
   return `
     <span class="computer-stats">
-      出牌 ${fmtNum(computer.playDelayMeanSeconds)}±${fmtNum(computer.playDelayStdSeconds)}s ·
-      反应 ${fmtNum(computer.reactionMeanSeconds)}±${fmtNum(computer.reactionStdSeconds)}s ·
-      发现 ${fmtPct(computer.matchDetectionProbability)} · 错按 ${fmtPct(computer.falseRingProbability)}
+      <span>出牌 <strong>${fmtNum(computer.playDelayMeanSeconds)}±${fmtNum(computer.playDelayStdSeconds)}s</strong></span>
+      <span>反应 <strong>${fmtNum(computer.reactionMeanSeconds)}±${fmtNum(computer.reactionStdSeconds)}s</strong></span>
+      <span>发现 <strong>${fmtPct(computer.matchDetectionProbability)}</strong></span>
+      <span>错按 <strong>${fmtPct(computer.falseRingProbability)}</strong></span>
     </span>
   `;
+}
+
+function roomSettingsForRender(room) {
+  if (app.roomSettingsDraft && (!app.roomSettingsDraft.roomId || app.roomSettingsDraft.roomId === room.id)) {
+    return app.roomSettingsDraft;
+  }
+  return room.settings;
 }
 
 function renderComputerManager(room) {
@@ -649,9 +727,9 @@ function renderComputerManager(room) {
         ${computers.map((computer) => {
           const inRoom = present.has(computer.id);
           return `
-            <div class="computer-row">
+            <div class="computer-row ${isGodComputer(computer) ? "god-computer" : ""}">
               <div>
-                <strong>${escapeHtml(computer.name)}</strong>
+                <strong>${renderComputerName(computer)}</strong>
                 <div class="muted">${escapeHtml(computer.description || "")}</div>
                 ${renderComputerStats(computer)}
               </div>
@@ -713,13 +791,25 @@ function formatChatLine(message) {
 
 function renderPlayerName(player, fallback = "Player") {
   const name = escapeHtml(player?.username || fallback);
+  if (isGodComputer(player) || String(player?.username || "").toUpperCase() === "GOD") return `<span class="god-name">${name}</span>`;
   if (player?.godSlayer && !player?.isComputer) return `<span class="god-slayer-name">${name}</span>`;
   return name;
 }
 
 function renderPlayerLabel(player) {
-  if (player?.godSlayer && !player?.isComputer) return `${renderPlayerName(player)} `;
-  return `${escapeHtml(player.username || "玩家")} ${player.isComputer ? `<span class="pill">Computer</span>` : ""}`;
+  return `${renderPlayerName(player, "玩家")} ${player.isComputer ? `<span class="pill">Computer</span>` : ""}`;
+}
+
+function isGodComputer(value) {
+  return value?.id === "computer_god"
+    || value?.computerId === "computer_god"
+    || (value?.isComputer && String(value?.username || value?.name || "").toUpperCase() === "GOD");
+}
+
+function renderComputerName(computer) {
+  const name = computer?.name || computer?.username || "Computer";
+  if (isGodComputer(computer) || String(name).toUpperCase() === "GOD") return `<span class="god-name">${escapeHtml(name)}</span>`;
+  return escapeHtml(name);
 }
 
 function renderLoading() {
@@ -1154,7 +1244,7 @@ function renderResult(game) {
   const replayDone = canContinueAfterResultReplay(game, replayStartedAt, now);
   return `
     <div class="result-modal">
-      <h2>祝贺 ${escapeHtml(winner?.username || "无人")} 胜利</h2>
+      <h2>祝贺 ${winner ? renderPlayerName(winner) : "无人"} 胜利</h2>
       <p>总出牌数：${game.playCount}</p>
       <p>抢铃：${game.bellCount} 次，成功 ${game.successBellCount}，失败 ${game.failBellCount}</p>
       <p>平均回合长度：${average}</p>
@@ -1188,7 +1278,7 @@ function renderProfile() {
         </div>
         <h3>战胜人机</h3>
         <div class="menu-grid">
-          ${(app.snapshot.computerPlayers || []).map((computer) => `<div class="card">${escapeHtml(computer.name)}：${Number(profile.defeatedComputers?.[computer.id] || 0)}</div>`).join("")}
+          ${(app.snapshot.computerPlayers || []).map((computer) => `<div class="card">${renderComputerName(computer)}：${Number(profile.defeatedComputers?.[computer.id] || 0)}</div>`).join("")}
         </div>
         ${renderTable("profile", history, [
           ["at", "时间", (row) => formatDate(row.at)],
@@ -1218,14 +1308,14 @@ function renderLeaderboard() {
   const players = sortRows(playerRows, app.sorts.players);
   const matches = sortRows(leaderboard.matches, app.sorts.matches);
   const playerColumns = [
-    ["username", "玩家", (row) => `${row.username}${row.isComputer ? " Computer" : ""}`],
+    ["username", "玩家", (row) => htmlCell(renderPlayerLabel(row))],
     ["gamesPlayed", "对局", (row) => row.gamesPlayed],
     ["wins", "胜场", (row) => row.wins],
     ["winRate", "胜率", (row) => fmtPct(row.winRate)],
     ["correctRate", "按铃正确率", (row) => fmtPct(row.correctRate)],
     ["wonCards", "赢牌", (row) => row.wonCards],
     ["averageRank", "平均排名", (row) => fmtNum(row.averageRank)],
-    ...computers.map((computer) => [`defeated_${computer.id}`, `胜 ${computer.name}`, (row) => row[`defeated_${computer.id}`] || 0]),
+    ...computers.map((computer) => [`defeated_${computer.id}`, htmlCell(`胜 ${renderComputerName(computer)}`), (row) => row[`defeated_${computer.id}`] || 0]),
   ];
   return `
     <main class="page">
@@ -1259,7 +1349,7 @@ function renderCardSelect() {
                 <span>
                   <strong>${escapeHtml(library.name)}</strong>
                   <span class="pill">${library.cardCount} 张 / ${library.pmvCount} PMV</span>
-                  <span class="muted">整理者：${escapeHtml(library.curator || "未知")}</span>
+                  <span class="muted">整理者：${escapeHtml(library.curator || "未填写")}</span>
                 </span>
                 <input name="libraryIds" value="${escapeAttr(library.id)}" type="checkbox" ${selected.has(library.id) ? "checked" : ""}>
               </label>
@@ -1306,9 +1396,11 @@ function renderCardInfo() {
         <div class="deck-info">
           <img src="${escapeAttr(active.backUrl)}" alt="">
           <div>
-            <h3>${escapeHtml(active.title || active.name)}</h3>
-            <p class="status-line">整理者：${escapeHtml(active.curator || "未知")} · ${active.cardCount} 张 · ${active.pmvCount} PMV · ${escapeHtml(active.name)}</p>
-            <p class="muted">${escapeHtml(active.description || "暂无描述")}</p>
+            <h3>${escapeHtml(active.name)}</h3>
+            <p class="status-line">整理者：${escapeHtml(active.curator || "未填写")} · ${active.cardCount} 张 · ${active.pmvCount} PMV${active.version ? ` · 版本 ${escapeHtml(active.version)}` : ""}</p>
+            <p class="muted">${escapeHtml(active.description || "暂无说明")}</p>
+            ${active.link ? `<p><a href="${escapeAttr(active.link)}">卡组链接</a></p>` : ""}
+            <p class="muted">文件夹：${escapeHtml(active.folderName || active.id)}</p>
           </div>
         </div>
         <div class="pmv-card-list">
@@ -1330,13 +1422,70 @@ function renderCardInfo() {
 function renderPmvIndex() {
   if (!app.pmvIndex) {
     loadPmvIndex();
-    return `<main class="page"><section class="panel"><h2>PMV id 查询</h2><p class="muted">加载中...</p></section></main>`;
+    return `<main class="page"><section class="panel"><h2>卡组提交指南</h2><p class="muted">加载中...</p></section></main>`;
   }
-  const rows = sortRows(app.pmvIndex.rows, app.sorts.pmvIndex);
+  const rows = sortRows(filterPmvIndexRows(app.pmvIndex.rows, app.pmvIndexSearch), app.sorts.pmvIndex);
   return `
     <main class="page">
       <section class="panel grid">
-        <h2>PMV id 查询</h2>
+        <h2>卡组提交指南</h2>
+        <div class="guide-grid">
+          <section>
+            <h3>卡组由什么组成</h3>
+            <p>一个卡组是一套 PMV 截图、一张背面图和一个 manifest.json。截图数量不限；背面图使用 <strong>720 × 1087</strong> 分辨率，文件名固定为 <code>back.png</code>。</p>
+            <p><code>manifest.json</code> 保存卡组元数据和每个 PMV 的信息。元数据可以填写卡组名字、整理者、说明、版本、链接；没有内容时留空即可。</p>
+          </section>
+          <section>
+            <h3>文件夹结构</h3>
+            <pre><code>卡组文件夹
+|_ manifest.json
+|_ back.png
+|_ cards
+   |_ 100a.png
+   |_ 100b.png
+   |_ 101a.png
+   |_ 101b.png
+   |_ 101c.png</code></pre>
+            <p>截图文件名由 <code>pmv_id + 字母</code> 组成。例子里 id 为 100 的 PMV 有 2 张截图，id 为 101 的 PMV 有 3 张截图。</p>
+          </section>
+          <section>
+            <h3>manifest.json 格式</h3>
+            <pre><code>{
+  "name": "卡组名字",
+  "curator": "整理者",
+  "description": "卡组说明",
+  "version": null,
+  "link": null,
+  "pmvs": [
+    {
+      "pmv_id": 100,
+      "name": "PMV名字1",
+      "author": "作者1",
+      "description": "链接（需要加双引号），为空请填写null（null无双引号）",
+      "link": "链接，为空请填写null"
+    },
+    {
+      "pmv_id": 101,
+      "name": "PMV名字2",
+      "author": "作者2",
+      "description": null,
+      "link": null
+    },
+    ...继续加入其他PMV
+  ]
+}</code></pre>
+          </section>
+          <section>
+            <h3>PMV id 怎么选？</h3>
+            <p>请先用下方查询功能确认你的卡组里是否有已经出现过的 PMV。如果有，请沿用对应 PMV id；如果没有，可以选择任意尚未出现过的 id。</p>
+            <p>完成后把整个卡组文件夹压缩，发给页面下方的管理员。审核通过后，管理员会手动添加卡包。</p>
+          </section>
+        </div>
+        <div class="pmv-search-row">
+          <label>搜索 PMV id / 名字 / 作者 / 卡组
+            <input data-pmv-search name="pmvSearch" value="${escapeAttr(app.pmvIndexSearch)}" autocomplete="off" placeholder="输入pmv名称">
+          </label>
+        </div>
         ${renderTable("pmvIndex", rows, [
           ["pmvId", "id", (row) => row.pmvId],
           ["name", "PMV 名", (row) => row.name],
@@ -1348,11 +1497,22 @@ function renderPmvIndex() {
   `;
 }
 
+function filterPmvIndexRows(rows, query) {
+  const normalized = String(query || "").trim().toLocaleLowerCase();
+  if (!normalized) return rows.slice();
+  return rows.filter((row) => [
+    row.pmvId,
+    row.name,
+    row.author,
+    row.libraryName,
+  ].some((value) => String(value || "").toLocaleLowerCase().includes(normalized)));
+}
+
 function renderTable(sortName, rows, columns) {
   return `
     <div class="table-wrap">
       <table>
-        <thead><tr>${columns.map(([key, label]) => `<th><button data-action="sort" data-sort="${sortName}" data-key="${key}">${label}</button></th>`).join("")}</tr></thead>
+        <thead><tr>${columns.map(([key, label]) => `<th><button data-action="sort" data-sort="${sortName}" data-key="${key}">${renderTableHeader(label)}</button></th>`).join("")}</tr></thead>
         <tbody>
           ${rows.length ? rows.map((row) => `<tr>${columns.map(([, , cell]) => `<td>${renderTableCell(cell(row))}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${columns.length}">暂无数据</td></tr>`}
         </tbody>
@@ -1363,6 +1523,11 @@ function renderTable(sortName, rows, columns) {
 
 function htmlCell(value) {
   return { __html: String(value ?? "") };
+}
+
+function renderTableHeader(value) {
+  if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "__html")) return value.__html;
+  return escapeHtml(value ?? "");
 }
 
 function renderTableCell(value) {
@@ -1506,9 +1671,9 @@ function renderComputerPicker(computers) {
       <h3>初始人机玩家</h3>
       <div class="computer-list">
         ${computers.map((computer) => `
-          <label class="computer-row">
+          <label class="computer-row ${isGodComputer(computer) ? "god-computer" : ""}">
             <span>
-              <strong>${escapeHtml(computer.name)}</strong>
+              <strong>${renderComputerName(computer)}</strong>
               <span class="muted">${escapeHtml(computer.description || "")}</span>
               ${renderComputerStats(computer)}
             </span>
@@ -1576,9 +1741,17 @@ async function handleClick(event) {
 }
 
 function handleChange(event) {
-  if (event.target.name !== "libraryIds" && !event.target.name?.startsWith("libraryCopies.")) return;
+  if (event.target.name !== "libraryIds" && !event.target.name?.startsWith("libraryCopies.") && !isRoomSettingsControl(event.target)) return;
   const form = event.target.closest("form");
   if (!form) return;
+  if (form.id === "room-settings-form") {
+    updateRoomSettingsDraft(form);
+    scheduleRoomSettingsAutosave();
+  }
+  updateLibraryTotal(form);
+}
+
+function updateLibraryTotal(form) {
   const data = new FormData(form);
   const selected = new Set(data.getAll("libraryIds"));
   const total = app.snapshot.cardLibraries
@@ -1589,20 +1762,41 @@ function handleChange(event) {
 }
 
 function handleInput(event) {
-  if (!isChatInput(event.target)) return;
-  app.chat.draft = event.target.value || "";
+  if (isChatInput(event.target)) {
+    app.chat.draft = event.target.value || "";
+    return;
+  }
+  if (isPmvSearchInput(event.target)) {
+    app.pmvIndexSearch = event.target.value || "";
+    render();
+    return;
+  }
+  if (isRoomSettingsControl(event.target)) {
+    const form = event.target.closest("form");
+    if (!form) return;
+    updateRoomSettingsDraft(form);
+    updateLibraryTotal(form);
+    scheduleRoomSettingsAutosave();
+  }
 }
 
 function handleFocusIn(event) {
-  if (!isChatInput(event.target)) return;
-  app.chat.focused = true;
-  app.chat.draft = event.target.value || app.chat.draft || "";
+  if (isChatInput(event.target)) {
+    app.chat.focused = true;
+    app.chat.draft = event.target.value || app.chat.draft || "";
+    return;
+  }
+  if (isPmvSearchInput(event.target)) app.pmvSearchFocused = true;
 }
 
 function handleFocusOut(event) {
-  if (!isChatInput(event.target) || app.rendering) return;
-  app.chat.focused = false;
-  app.chat.draft = event.target.value || "";
+  if (isChatInput(event.target)) {
+    if (app.rendering) return;
+    app.chat.focused = false;
+    if (event.target.value) app.chat.draft = event.target.value;
+    return;
+  }
+  if (isPmvSearchInput(event.target) && !app.rendering) app.pmvSearchFocused = false;
 }
 
 function handleCompositionStart(event) {
@@ -1647,7 +1841,13 @@ async function handleSubmit(event) {
   }
   if (form.id === "room-settings-form") {
     const room = currentRoom();
-    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/settings`, authPayload({ settings: settingsFromForm(form, false) }));
+    if (app.roomSettingsAutosaveTimer) {
+      window.clearTimeout(app.roomSettingsAutosaveTimer);
+      app.roomSettingsAutosaveTimer = null;
+    }
+    updateRoomSettingsDraft(form);
+    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/settings`, authPayload({ settings: roomSettingsPayload(app.roomSettingsDraft) }));
+    app.roomSettingsDraft = null;
     await refresh();
     setRoute("waiting", { roomId: room.id });
   }
@@ -1747,6 +1947,51 @@ function settingsFromForm(form, includeFixed) {
     settings.isPublic = data.has("isPublic");
   }
   return settings;
+}
+
+function updateRoomSettingsDraft(form) {
+  const room = currentRoom();
+  if (!room) return null;
+  app.roomSettingsDraft = {
+    roomId: room.id,
+    ...settingsFromForm(form, false),
+  };
+  return app.roomSettingsDraft;
+}
+
+function roomSettingsPayload(settings) {
+  const { roomId, ...payload } = settings || {};
+  return payload;
+}
+
+function scheduleRoomSettingsAutosave() {
+  if (app.roomSettingsAutosaveTimer) window.clearTimeout(app.roomSettingsAutosaveTimer);
+  app.roomSettingsAutosaveTimer = window.setTimeout(() => {
+    app.roomSettingsAutosaveTimer = null;
+    saveRoomSettingsDraft();
+  }, 180);
+}
+
+async function saveRoomSettingsDraft() {
+  const room = currentRoom();
+  const draft = app.roomSettingsDraft;
+  if (!room || !draft || draft.roomId !== room.id) return;
+  const seq = ++app.roomSettingsAutosaveSeq;
+  app.roomSettingsSaving = true;
+  try {
+    await postJson(`/api/rooms/${encodeURIComponent(room.id)}/settings`, authPayload({ settings: roomSettingsPayload(draft) }));
+    await refresh();
+    if (seq === app.roomSettingsAutosaveSeq && app.route.name === "settings") {
+      const latest = currentRoom();
+      if (latest) app.roomSettingsDraft = { roomId: latest.id, ...latest.settings };
+      app.roomSettingsSaving = false;
+      render();
+    }
+  } catch (error) {
+    showToast(humanizeError(error.message));
+  } finally {
+    if (seq === app.roomSettingsAutosaveSeq) app.roomSettingsSaving = false;
+  }
 }
 
 async function joinRoom(roomId) {
@@ -2062,9 +2307,20 @@ function sortRows(rows, sort) {
   return rows.slice().sort((a, b) => {
     const av = a[sort.key];
     const bv = b[sort.key];
+    const aEmpty = isEmptySortValue(av);
+    const bEmpty = isEmptySortValue(bv);
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
     const result = typeof av === "string" ? String(av).localeCompare(String(bv), "zh-Hans-CN") : Number(av || 0) - Number(bv || 0);
     return sort.dir === "asc" ? result : -result;
   });
+}
+
+function isEmptySortValue(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "number" && Number.isNaN(value)) return true;
+  return false;
 }
 
 function rotatePlayersForSelf(players) {
@@ -2074,7 +2330,10 @@ function rotatePlayersForSelf(players) {
 }
 
 function currentRoom() {
-  if (app.route.roomId) return app.snapshot.rooms.find((room) => room.id === app.route.roomId);
+  if (app.route.roomId) {
+    return app.snapshot.rooms.find((room) => room.id === app.route.roomId)
+      || (app.snapshot.currentRoom?.id === app.route.roomId ? app.snapshot.currentRoom : null);
+  }
   if (app.snapshot.currentRoom) return app.snapshot.currentRoom;
   return null;
 }
@@ -2143,10 +2402,14 @@ function statusText(status) {
 }
 
 function fmtPct(value) {
-  return `${Math.round((value || 0) * 100)}%`;
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  const percent = Number(value || 0) * 100;
+  const rounded = Math.round(percent * 100) / 100;
+  return `${String(rounded).replace(/\.?0+$/, "")}%`;
 }
 
 function fmtNum(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
   return Number(value || 0).toFixed(2);
 }
 

@@ -172,6 +172,25 @@ label {
   margin-top: 26px;
 }
 
+.game-intro {
+  border-left: 4px solid var(--accent);
+  color: #f5e0a3;
+  font-family: "KaiTi", "STKaiti", "Microsoft YaHei", serif;
+  font-size: clamp(22px, 3vw, 34px);
+  font-weight: 800;
+  line-height: 1.42;
+  margin: 18px 0 0;
+  padding: 4px 0 4px 14px;
+}
+
+.menu-info-panel {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 14px;
+}
+
 .panel,
 .card {
   background: rgba(32, 37, 31, .88);
@@ -238,6 +257,16 @@ label {
   padding: 10px;
 }
 
+.computer-row.god-computer {
+  border-color: rgba(255, 87, 87, .52);
+  color: #ff6b6b;
+}
+
+.computer-row.god-computer .muted,
+.computer-row.god-computer .computer-stats {
+  color: #ff8f8f;
+}
+
 .computer-row > span,
 .computer-row > div {
   min-width: 0;
@@ -250,11 +279,23 @@ label {
 
 .computer-stats {
   color: var(--muted);
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   font-size: 12px;
-  gap: 6px 12px;
-  margin-top: 4px;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  margin-top: 8px;
+}
+
+.computer-stats span {
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.god-name {
+  color: #ff4d4d;
+  font-weight: 900;
 }
 
 .god-slayer-name {
@@ -507,6 +548,46 @@ th button {
 .rules-grid p {
   color: var(--muted);
   line-height: 1.6;
+}
+
+.guide-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.guide-grid section {
+  border-top: 1px solid rgba(255, 255, 255, .1);
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.guide-grid h3,
+.guide-grid p {
+  margin: 0;
+}
+
+.guide-grid p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.guide-grid pre {
+  background: rgba(8, 11, 8, .45);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.guide-grid code {
+  white-space: pre;
+}
+
+.pmv-search-row {
+  max-width: 540px;
 }
 
 .loading-detail {
@@ -1016,6 +1097,20 @@ th button {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .menu-info-panel {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .menu-info-panel .actions {
+    justify-content: stretch;
+  }
+
+  .menu-info-panel .actions button,
+  .menu-info-panel > button {
+    width: 100%;
   }
 
   .station {

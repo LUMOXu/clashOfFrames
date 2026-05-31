@@ -107,6 +107,28 @@ test("detects matching top display cards by PMV id", () => {
   assert.equal(match.cards.length, 2);
 });
 
+test("matches top display cards with the same PMV id across different libraries", () => {
+  const game = sampleGame();
+  game.players[0].displayPile.push({
+    ...sampleCard("base/100a", 100),
+    libraryId: "base",
+    pmvName: "Name from base",
+    playedSeq: 1,
+  });
+  game.players[1].displayPile.push({
+    ...sampleCard("extra/100b", 100),
+    libraryId: "extra",
+    pmvName: "Name from extra",
+    playedSeq: 2,
+  });
+
+  const match = findCurrentMatch(game);
+
+  assert.equal(match.pmvId, 100);
+  assert.equal(match.cards.length, 2);
+  assert.equal(match.pmvName, "Name from extra");
+});
+
 test("correct bell clears display piles and awards won cards", () => {
   const game = sampleGame();
   game.players[0].displayPile.push({ ...sampleCard("a1", 2), playedSeq: 1 });

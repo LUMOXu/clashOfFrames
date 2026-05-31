@@ -29,6 +29,31 @@ test("parses manifest json with optional PMV metadata", () => {
   assert.equal(manifest.byId.get(7).author, "Editor");
 });
 
+test("parses manifest json object with deck metadata and PMV entries", () => {
+  const manifest = parseManifest(JSON.stringify({
+    name: "Deck Name",
+    curator: "Curator",
+    description: "Deck notes",
+    pmvs: [
+      {
+        pmv_id: 7,
+        name: "Song",
+        author: "Editor",
+      },
+    ],
+  }));
+
+  assert.deepEqual(manifest.metadata, {
+    name: "Deck Name",
+    curator: "Curator",
+    description: "Deck notes",
+    version: null,
+    link: null,
+  });
+  assert.equal(manifest.entries[0].pmvId, 7);
+  assert.equal(manifest.byId.get(7).name, "Song");
+});
+
 test("groups cards by PMV id using manifest details", () => {
   const grouped = cardsGroupedByPmv({
     manifest: [

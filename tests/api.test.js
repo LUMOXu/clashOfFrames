@@ -273,6 +273,71 @@ test("API supports computers, start votes, chat, card viewer, PMV index, and com
   }
 });
 
+test("leaderboard returns null for metrics that have not been played yet", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const player = await register(base, "No Games Yet");
+    const leaderboard = await request(base, "GET", "/api/leaderboard");
+    const row = leaderboard.players.find((item) => item.clientId === player.clientId);
+
+    assert.equal(row.gamesPlayed, 0);
+    assert.equal(row.winRate, null);
+    assert.equal(row.correctRate, null);
+    assert.equal(row.averageRank, null);
+  } finally {
+    await close(server);
+  }
+});
+
+test("saved room library copies are used when starting a game", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
+  const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });
+  const port = await listen(server);
+  const base = `http://127.0.0.1:${port}`;
+
+  try {
+    const bootstrap = await request(base, "GET", "/api/bootstrap");
+    const library = bootstrap.cardLibraries.find((item) => item.cardCount * 2 <= 120);
+    assert.ok(library);
+    const p1 = await register(base, "Copy Host");
+    const p2 = await register(base, "Copy Guest");
+    const created = await request(base, "POST", "/api/rooms", payload(p1, {
+      settings: {
+        minPlayers: 2,
+        maxPlayers: 4,
+        isPublic: true,
+        libraryIds: [library.id],
+        libraryCopies: { [library.id]: 1 },
+      },
+    }));
+    await request(base, "POST", `/api/rooms/${created.room.id}/join`, payload(p2));
+    const settings = await request(base, "POST", `/api/rooms/${created.room.id}/settings`, payload(p1, {
+      settings: {
+        libraryIds: [library.id],
+        libraryCopies: { [library.id]: 2 },
+        startVoteThresholdMode: "auto",
+        startVoteThreshold: null,
+        allowEmptyBell: false,
+        randomBacks: false,
+        conflictResolution: true,
+        disconnectProtection: true,
+      },
+    }));
+    assert.equal(settings.room.settings.libraryCopies[library.id], 2);
+
+    const started = await request(base, "POST", `/api/rooms/${created.room.id}/start`, payload(p1));
+    const game = state.games.get(started.game.id);
+
+    assert.equal(game.discardedCards + game.players.reduce((sum, player) => sum + player.drawPile.length, 0), library.cardCount * 2);
+  } finally {
+    await close(server);
+  }
+});
+
 test("continue votes after results ignore computer players", async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cof-test-"));
   const { server, state } = createApp({ rootDir: path.join(__dirname, ".."), dataFile: path.join(tmpDir, "state.json") });

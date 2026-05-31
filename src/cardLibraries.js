@@ -15,6 +15,24 @@ function parseManifest(text) {
     if (!Array.isArray(parsed)) throw new Error("manifest.json must be a list.");
     return manifestResult(parsed.map((entry) => normalizeManifestEntry(entry)).filter(Boolean));
   }
+  if (trimmed.startsWith("{")) {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("manifest.json must be an object or a list.");
+    }
+    const rawEntries = Array.isArray(parsed.pmvs)
+      ? parsed.pmvs
+      : Array.isArray(parsed.entries)
+        ? parsed.entries
+        : Array.isArray(parsed.cards)
+          ? parsed.cards
+          : [];
+    return manifestResult(
+      rawEntries.map((entry) => normalizeManifestEntry(entry)).filter(Boolean),
+      normalizeManifestMetadata(parsed),
+      true,
+    );
+  }
   return parseLegacyManifest(trimmed);
 }
 
@@ -48,15 +66,27 @@ function normalizeManifestEntry(entry) {
   };
 }
 
+function normalizeManifestMetadata(input) {
+  return {
+    name: nullableString(input.name ?? input.title),
+    curator: nullableString(input.curator ?? input.organizer ?? input.author),
+    description: nullableString(input.description),
+    version: nullableString(input.version),
+    link: nullableString(input.link ?? input.url),
+  };
+}
+
 function nullableString(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed || null;
 }
 
-function manifestResult(entries) {
+function manifestResult(entries, metadata = normalizeManifestMetadata({}), hasMetadata = false) {
   const sorted = entries.slice().sort((a, b) => a.pmvId - b.pmvId);
   return {
+    metadata,
+    hasMetadata,
     entries: sorted,
     byId: new Map(sorted.map((entry) => [entry.pmvId, entry])),
   };
@@ -131,6 +161,7 @@ function discoverCardLibraries(rootDir) {
       const manifest = parseManifest(fs.readFileSync(manifestPath, "utf8"));
       const backUrl = toUrlPath(["cards", libraryId, "back.png"]);
       const libraryName = splitLibraryName(libraryId);
+      const metadata = manifest.metadata || normalizeManifestMetadata({});
       const cards = fs.readdirSync(cardsDir, { withFileTypes: true })
         .filter((cardEntry) => cardEntry.isFile() && /\.(?:png|jpe?g)$/i.test(cardEntry.name))
         .map((cardEntry) => {
@@ -155,10 +186,14 @@ function discoverCardLibraries(rootDir) {
 
       return {
         id: libraryId,
-        name: libraryId,
-        title: libraryName.title,
-        curator: libraryName.curator,
-        description: null,
+        name: metadata.name || libraryId,
+        folderName: libraryId,
+        title: metadata.name || (manifest.hasMetadata ? "" : libraryName.title),
+        curator: metadata.curator || (manifest.hasMetadata ? null : libraryName.curator),
+        description: metadata.description,
+        version: metadata.version,
+        link: metadata.link,
+        metadata,
         manifest: manifest.entries,
         backUrl,
         cardCount: cards.length,
