@@ -1,0 +1,70 @@
+{
+  "players": [
+    {
+      "id": "computer_easy",
+      "name": "一般通过",
+      "description": "“大家做的pmv视频，不知道是否pxxn music video？”",
+      "playDelayMeanSeconds": 2,
+      "playDelayStdSeconds": 1,
+      "reactionMeanSeconds": 2,
+      "reactionStdSeconds": 2,
+      "matchDetectionProbability": 0.1,
+      "falseRingProbability": 0.05
+    },
+    {
+      "id": "computer_casual",
+      "name": "巴甫洛夫的狗",
+      "description": "很喜欢按铃的音效，不过也就这样了。",
+      "playDelayMeanSeconds": 2,
+      "playDelayStdSeconds": 0.5,
+      "reactionMeanSeconds": 1,
+      "reactionStdSeconds": 0.2,
+      "matchDetectionProbability": 0.5,
+      "falseRingProbability": 0.25
+    },
+    {
+      "id": "computer_normal",
+      "name": "分心玩家",
+      "description": "一只眼看着纸质的对应表，一只眼看着屏幕，所以反应慢了点，但是正确率肯定有保障。",
+      "playDelayMeanSeconds": 2,
+      "playDelayStdSeconds": 1,
+      "reactionMeanSeconds": 3.5,
+      "reactionStdSeconds": 1,
+      "matchDetectionProbability": 0.99,
+      "falseRingProbability": 0.01
+    },
+    {
+      "id": "computer_hard",
+      "name": "背图狂人",
+      "description": "花了一阵把卡组的图背下来了。",
+      "playDelayMeanSeconds": 1.8,
+      "playDelayStdSeconds": 0.5,
+      "reactionMeanSeconds": 2,
+      "reactionStdSeconds": 1,
+      "matchDetectionProbability": 0.85,
+      "falseRingProbability": 0.01
+    },
+    {
+      "id": "computer_master",
+      "name": "Master",
+      "description": "游戏的设计者。",
+      "playDelayMeanSeconds": 1.5,
+      "playDelayStdSeconds": 0,
+      "reactionMeanSeconds": 0.8,
+      "reactionStdSeconds": 0.5,
+      "matchDetectionProbability": 0.97,
+      "falseRingProbability": 0.005
+    },
+    {
+      "id": "computer_god",
+      "name": "GOD",
+      "description": "帧封相对之神，如果你能赢祂至少3张牌，会有神秘的惊喜等着你。",
+      "playDelayMeanSeconds": 1.5,
+      "playDelayStdSeconds": 0,
+      "reactionMeanSeconds": 0.45,
+      "reactionStdSeconds": 0.1,
+      "matchDetectionProbability": 0.99,
+      "falseRingProbability": 0.0005
+    }
+  ]
+}

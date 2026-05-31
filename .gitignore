@@ -1,5 +1,15 @@
-data/*.json
-data/font-cache/
+old/data/*.json
+old/data/font-cache/
 node_modules/
 docs/
 plan.txt
+
+# Vue refactor
+cof-web-vue3/node_modules/
+cof-web-vue3/dist/
+
+# Java refactor
+cof-java-boot/**/target/
+
+# Generated font cache
+cof-java-boot/**/data/font-cache/

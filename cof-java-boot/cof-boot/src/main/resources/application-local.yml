@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/cof_db?currentSchema=public
+    username: postgres
+    password: 123123
+    driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
+      database: 2
+
+cof:
+  resource-root: ${COF_RESOURCE_ROOT:../cof-resource}

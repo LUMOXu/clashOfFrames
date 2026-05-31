@@ -1,0 +1,121 @@
+{
+  "name": "基础包",
+  "curator": "ThePMVPanel'25",
+  "description": "Clash of Frames 基础卡组。",
+  "version": "",
+  "link": "",
+  "pmvs": [
+    {
+      "pmv_id": 1,
+      "name": "[PMV] Lose You Now",
+      "author": "LUMO_Xu",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1ST421k7RS/"
+    },
+    {
+      "pmv_id": 2,
+      "name": "[PMV] Fly Away",
+      "author": "LUMO_Xu",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV12y421a7At/"
+    },
+    {
+      "pmv_id": 3,
+      "name": "[PMV] Remember the Summer",
+      "author": "LUMO_Xu",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1qi4y1S7TS/"
+    },
+    {
+      "pmv_id": 4,
+      "name": "[合作PMV] Back to You",
+      "author": "秋天里的麦穗_ 等",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV17P411J7Zj/"
+    },
+    {
+      "pmv_id": 5,
+      "name": "[PMV] A New Pair of Wings",
+      "author": "Daspacepony",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1Hx411b73t/"
+    },
+    {
+      "pmv_id": 6,
+      "name": "[PMV] INFINITE",
+      "author": "Drowning鱼",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1rr421M7L4/"
+    },
+    {
+      "pmv_id": 7,
+      "name": "[PMV] Stay",
+      "author": "斯朗Shiron",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1qL4y147k9/"
+    },
+    {
+      "pmv_id": 8,
+      "name": "[PMV] 不过失去了一点点",
+      "author": "珀盾",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1vCYWeqESD/"
+    },
+    {
+      "pmv_id": 9,
+      "name": "[合作PMV] All We Know",
+      "author": "Alekc233 等",
+      "description": "原片已消失，为补档。",
+      "link": "https://www.bilibili.com/video/BV1Nz4y1c7ij/"
+    },
+    {
+      "pmv_id": 10,
+      "name": "[PMV] Free Fall",
+      "author": "秋天里的麦穗_",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1bh41197mx/"
+    },
+    {
+      "pmv_id": 11,
+      "name": "[合作PMV] Wolves",
+      "author": "秋天里的麦穗_ 等",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1ot411374d/"
+    },
+    {
+      "pmv_id": 12,
+      "name": "[PMV] Zero",
+      "author": "斯朗Shiron",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1Ht411N7Pa/"
+    },
+    {
+      "pmv_id": 13,
+      "name": "[PMV] Ready Set Go",
+      "author": "Nieve_Helada",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1Jb41197hQ/"
+    },
+    {
+      "pmv_id": 14,
+      "name": "[PMV] Killer Queen",
+      "author": "Wooshy",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV19y4y1h7BT/"
+    },
+    {
+      "pmv_id": 15,
+      "name": "[PMV] Carried Home",
+      "author": "渢渢乎",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV1J34y1h7WU/"
+    },
+    {
+      "pmv_id": 16,
+      "name": "[PMV] Your Adventure Log Has Vanished!",
+      "author": "Racecarghost",
+      "description": null,
+      "link": "https://www.bilibili.com/video/BV12x411w7ca/"
+    }
+  ]
+}

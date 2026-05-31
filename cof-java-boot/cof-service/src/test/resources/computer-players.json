@@ -1,0 +1,15 @@
+{
+  "players": [
+    {
+      "id": "computer_easy",
+      "name": "Test Bot",
+      "description": "test",
+      "playDelayMeanSeconds": 2,
+      "playDelayStdSeconds": 1,
+      "reactionMeanSeconds": 2,
+      "reactionStdSeconds": 1,
+      "matchDetectionProbability": 0.1,
+      "falseRingProbability": 0.05
+    }
+  ]
+}

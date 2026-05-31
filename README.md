@@ -1,43 +1,59 @@
 # Clash of Frames
 
-Dependency-free local/LAN multiplayer web game. One Node.js process serves the frontend, JSON APIs, and Server-Sent Events.
+重构版：Vue 3 前端 + Spring Boot 后端。原 Node 单体见 [old/](old/)。
 
-**Created with good vibes.**
+## 新目录
 
-## Run Locally
+| 目录 | 说明 | 端口 |
+|------|------|------|
+| [cof-web-vue3](cof-web-vue3/) | Vue 3 + Vite 前端 | **9001** |
+| [cof-java-boot](cof-java-boot/) | Spring Boot 3 + Java 17 后端 | **9002** |
+| [cof-resource](cof-resource/) | 卡牌与静态资源 | 由后端托管 |
+| [cof-sql-version](cof-sql-version/) | Flyway SQL（`cof_db` / `public`） | — |
+| [old](old/) | 原 `server.js` + `public/` 等（对照用） | 3000 |
+
+## 快速启动
+
+### 依赖服务
+
+- PostgreSQL 17：数据库 `cof_db`，schema `public`
+- Redis 7+
+
+### 后端
 
 ```powershell
+cd cof-java-boot\cof-boot
+$env:COF_RESOURCE_ROOT="D:\Pony\clashOfFrame\cof-resource"
+mvn spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+首次导入牌组/人机可加：`--import-decks --import-computers`（在 `spring-boot:run` 参数中）。
+
+### 前端
+
+```powershell
+cd cof-web-vue3
+npm install
+npm run dev
+```
+
+浏览器打开 http://localhost:9001
+
+## 测试
+
+```powershell
+cd cof-java-boot
+mvn -pl cof-boot -am verify
+
+cd cof-web-vue3
+npm run test:unit
+```
+
+## 老项目
+
+```powershell
+cd old
 node server.js
 ```
 
-Open `http://localhost:3000`.
-
-## Run On A Server
-
-```powershell
-$env:HOST="0.0.0.0"
-$env:PORT="3000"
-node server.js
-```
-
-Then connect from another device with `http://SERVER_IP:3000`. Make sure the server firewall allows the selected port.
-
-For public internet deployment, put the app behind an HTTPS reverse proxy. Login tokens are stored in the browser and should not be sent over plain HTTP on an untrusted network.
-
-## Accounts
-
-Users must register a username and password before entering the game. There is no password recovery flow in the app; if a user forgets the password, they must contact an administrator.
-
-Passwords are stored in `data/state.json` as PBKDF2 salted hashes. To reset a user password, an administrator can edit that user's `passwordHash` field to exactly:
-
-```json
-"123456"
-```
-
-On the next login, any entered password is accepted once and immediately becomes the user's new salted, hashed password.
-
-## Data And Cache
-
-Persistent local data lives in `data/state.json`; back it up before moving or upgrading the server.
-
-The bootstrap API only sends card-library metadata. The loading screen fetches the selected room's asset manifest and preloads card backs, card faces, the bell, and the table logo. Card assets are served with long-lived browser cache headers so the same selected card groups do not need to download again.
+详见 [REFACTORING.md](REFACTORING.md) 与 [cof-java-boot/README.md](cof-java-boot/README.md)。
