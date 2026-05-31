@@ -61,8 +61,8 @@
       "description": "帧封相对之神，如果你能赢祂至少3张牌，会有神秘的惊喜等着你。",
       "playDelayMeanSeconds": 1.5,
       "playDelayStdSeconds": 0,
-      "reactionMeanSeconds": 0.45,
-      "reactionStdSeconds": 0.1,
+      "reactionMeanSeconds": 0.5,
+      "reactionStdSeconds": 0.15,
       "matchDetectionProbability": 0.99,
       "falseRingProbability": 0.0005
     }
