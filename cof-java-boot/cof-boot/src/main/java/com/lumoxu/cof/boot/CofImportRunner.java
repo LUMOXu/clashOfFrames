@@ -48,7 +48,7 @@ public class CofImportRunner implements ApplicationRunner {
             log.info("Imported {} computer player(s) into PostgreSQL.", count);
         }
         if (args.containsOption("migrate-state-json")) {
-            Path stateJson = Path.of("../data/state.json").toAbsolutePath().normalize();
+            Path stateJson = Path.of("data/state.json").toAbsolutePath().normalize();
             int count = stateJsonMigrationService.importFromFile(stateJson);
             log.info("Migrated {} user(s) from state.json.", count);
         }

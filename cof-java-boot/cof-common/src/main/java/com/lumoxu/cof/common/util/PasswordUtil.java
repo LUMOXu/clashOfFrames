@@ -2,6 +2,7 @@ package com.lumoxu.cof.common.util;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -27,8 +28,16 @@ public final class PasswordUtil {
     }
 
     public static String hashPassword(String password, String saltHex, int iterations) {
+        return pbkdf2(password, HexFormat.of().parseHex(saltHex), iterations);
+    }
+
+    /** Matches legacy Node {@code pbkdf2Sync(password, saltHexString, ...)} (salt as UTF-8, not decoded). */
+    public static String hashPasswordNodeLegacy(String password, String saltHex, int iterations) {
+        return pbkdf2(password, saltHex.getBytes(StandardCharsets.UTF_8), iterations);
+    }
+
+    private static String pbkdf2(String password, byte[] salt, int iterations) {
         try {
-            byte[] salt = HexFormat.of().parseHex(saltHex);
             PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt, iterations, KEY_LENGTH_BITS);
             SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
             return HexFormat.of().formatHex(factory.generateSecret(spec).getEncoded());
@@ -54,7 +63,14 @@ public final class PasswordUtil {
         }
         int iter = iterations != null && iterations > 0 ? iterations : DEFAULT_ITERATIONS;
         String expected = hashPassword(password, saltHex, iter);
-        return new VerificationResult(timingSafeEqualHex(expected, storedHash), false);
+        if (timingSafeEqualHex(expected, storedHash)) {
+            return new VerificationResult(true, false, false);
+        }
+        String legacyExpected = hashPasswordNodeLegacy(password, saltHex, iter);
+        if (timingSafeEqualHex(legacyExpected, storedHash)) {
+            return new VerificationResult(true, false, true);
+        }
+        return new VerificationResult(false, false, false);
     }
 
     public static boolean timingSafeEqualHex(String left, String right) {
@@ -67,6 +83,9 @@ public final class PasswordUtil {
         }
     }
 
-    public record VerificationResult(boolean ok, boolean resetPassword) {
+    public record VerificationResult(boolean ok, boolean resetPassword, boolean legacyNodeHash) {
+        public VerificationResult(boolean ok, boolean resetPassword) {
+            this(ok, resetPassword, false);
+        }
     }
 }

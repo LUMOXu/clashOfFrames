@@ -17,14 +17,22 @@ public class CofWebConfig implements WebMvcConfigurer {
     @Value("${cof.resource-root:../cof-resource}")
     private String resourceRoot;
 
+    /** Comma-separated patterns, e.g. http://*:9001 for nginx front on any host. */
+    @Value("${cof.cors.allowed-origin-patterns:http://localhost:*,http://127.0.0.1:*,http://*:9001}")
+    private String corsAllowedOriginPatterns;
+
     public CofWebConfig(CofDeckMapper deckMapper) {
         this.deckMapper = deckMapper;
     }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        String[] patterns = corsAllowedOriginPatterns.split(",");
+        for (int i = 0; i < patterns.length; i++) {
+            patterns[i] = patterns[i].trim();
+        }
         registry.addMapping("/**")
-                .allowedOrigins("http://localhost:9001", "http://127.0.0.1:9001")
+                .allowedOriginPatterns(patterns)
                 .allowedMethods("*")
                 .allowedHeaders("*")
                 .allowCredentials(true);

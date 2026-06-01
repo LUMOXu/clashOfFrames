@@ -60,7 +60,7 @@ public class AuthService {
         if (!verification.ok()) {
             throw new CofException(ErrorCode.UNAUTHORIZED, "用户名或密码不正确。");
         }
-        if (verification.resetPassword()) {
+        if (verification.resetPassword() || verification.legacyNodeHash()) {
             applyPassword(user, password);
             userMapper.updateById(user);
         }

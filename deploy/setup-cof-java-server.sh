@@ -164,7 +164,11 @@ server {
         proxy_set_header Host $host;
     }
 
+    # Vite JS/CSS under /assets/; bell.png etc. fall through to backend
     location /assets/ {
+        try_files $uri @cof_assets_backend;
+    }
+    location @cof_assets_backend {
         proxy_pass http://127.0.0.1:9002;
         proxy_set_header Host $host;
     }

@@ -15,6 +15,16 @@ class PasswordUtilTest {
     }
 
     @Test
+    void nodeLegacySaltFromStateJson() {
+        String salt = "d382ffab3d115ab4a3fadb0bd0e27ef2";
+        String hash = "a7137b9f6b7a836baf7535848eb89d304a6e3fb897d867a067f3a491997f94e1";
+        PasswordUtil.VerificationResult result = PasswordUtil.verify("123123", hash, salt, 210_000);
+        assertTrue(result.ok());
+        assertTrue(result.legacyNodeHash());
+        assertFalse(result.resetPassword());
+    }
+
+    @Test
     void hashedPasswordRoundTrip() {
         String salt = PasswordUtil.newSaltHex();
         String hash = PasswordUtil.hashPassword("hunter2", salt, PasswordUtil.DEFAULT_ITERATIONS);
