@@ -101,6 +101,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    path: "/cards/submit",
+    name: "card-submit",
+    component: () => import("@/views/CardSubmitView.vue"),
+    meta: { requiresAuth: true },
+  },
+  {
     path: "/pmv-index",
     name: "pmv-index",
     component: () => import("@/views/PmvIndexView.vue"),

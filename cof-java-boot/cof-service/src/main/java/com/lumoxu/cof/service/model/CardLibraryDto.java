@@ -16,6 +16,8 @@ public class CardLibraryDto {
     public String backUrl;
     public int cardCount;
     public int pmvCount;
+    public String reviewStatus;
+    public String submitterClientId;
     public List<CardDto> cards = new ArrayList<>();
 
     public static class CardDto {
@@ -27,5 +29,7 @@ public class CardLibraryDto {
         public String imageUrl;
         public String backUrl;
         public String shot;
+        /** False for pending submissions — excluded from match dealing. */
+        public Boolean approvedForPlay;
     }
 }

@@ -1,6 +1,7 @@
 package com.lumoxu.cof.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.lumoxu.cof.common.catalog.ReviewStatus;
 import com.lumoxu.cof.domain.entity.CofCard;
 import com.lumoxu.cof.domain.entity.CofDeck;
 import com.lumoxu.cof.domain.entity.CofDeckPmv;
@@ -60,11 +61,47 @@ public class DeckCatalogService {
     }
 
     public List<CardLibraryDto> listFullLibraries() {
-        return deckMapper.listEnabledDecks().stream()
-                .map(d -> loadDeckBundle(d.id))
+        return listFullLibrariesForViewer(null);
+    }
+
+    public List<CardLibraryDto> listFullLibrariesForViewer(String viewerClientId) {
+        return listPlayableDecks(viewerClientId).stream()
+                .map(d -> loadDeckBundle(d.id, viewerClientId))
                 .filter(lib -> lib != null)
                 .sorted(Comparator.comparing(l -> l.name, String.CASE_INSENSITIVE_ORDER))
                 .collect(Collectors.toList());
+    }
+
+    public List<CofDeck> listPlayableDecks(String viewerClientId) {
+        if (viewerClientId == null || viewerClientId.isBlank()) {
+            return deckMapper.listEnabledDecks();
+        }
+        List<CofDeck> decks = new ArrayList<>();
+        for (CofDeck deck : deckMapper.listEnabledDecks()) {
+            decks.add(deck);
+        }
+        for (CofDeck deck : deckMapper.listBySubmitter(viewerClientId)) {
+            if (!decks.stream().anyMatch(d -> d.id.equals(deck.id))) {
+                decks.add(deck);
+            }
+        }
+        return decks;
+    }
+
+    public boolean isDeckPlayable(CofDeck deck) {
+        return deck != null
+                && Boolean.TRUE.equals(deck.enabled)
+                && ReviewStatus.isApproved(deck.reviewStatus);
+    }
+
+    public boolean isDeckVisibleInViewer(CofDeck deck, String viewerClientId) {
+        if (deck == null) {
+            return false;
+        }
+        if (isDeckPlayable(deck)) {
+            return true;
+        }
+        return ReviewStatus.isVisibleToUser(deck.reviewStatus, deck.submitterClientId, viewerClientId);
     }
 
     public CardLibraryDto loadDeckBundle(String libraryId) {
@@ -76,17 +113,25 @@ public class DeckCatalogService {
     }
 
     public CardLibraryDto loadDeckBundle(Long deckId) {
-        String cacheKey = String.valueOf(deckId);
+        return loadDeckBundle(deckId, null);
+    }
+
+    public CardLibraryDto loadDeckBundle(Long deckId, String viewerClientId) {
+        String cacheKey = viewerClientId == null || viewerClientId.isBlank()
+                ? String.valueOf(deckId)
+                : deckId + ":viewer:" + viewerClientId;
         Optional<CardLibraryDto> cached = redis.get(RedisKeys.deckBundle(cacheKey), CardLibraryDto.class);
         if (cached.isPresent()) {
             return cached.get();
         }
         CofDeck deck = deckMapper.selectById(deckId);
-        if (deck == null || Boolean.FALSE.equals(deck.enabled)) {
+        if (deck == null || !isDeckVisibleInViewer(deck, viewerClientId)) {
             return null;
         }
-        CardLibraryDto dto = assembleBundle(deck);
-        redis.set(RedisKeys.deckBundle(cacheKey), dto, Duration.ofHours(24));
+        CardLibraryDto dto = assembleBundle(deck, viewerClientId);
+        if (viewerClientId == null || viewerClientId.isBlank()) {
+            redis.set(RedisKeys.deckBundle(cacheKey), dto, Duration.ofHours(24));
+        }
         return dto;
     }
 
@@ -97,7 +142,7 @@ public class DeckCatalogService {
         CatalogBundleDto bundle = new CatalogBundleDto();
         for (String libraryId : libraryIds) {
             CardLibraryDto lib = loadDeckBundle(libraryId);
-            if (lib != null) {
+            if (lib != null && lib.cards != null && !lib.cards.isEmpty()) {
                 bundle.libraries.add(lib);
             }
         }
@@ -141,6 +186,13 @@ public class DeckCatalogService {
     public List<Map<String, Object>> buildPmvIndex() {
         List<Map<String, Object>> index = new ArrayList<>();
         for (CofDeckPmv pmv : deckPmvMapper.selectList(null)) {
+            CofDeck deck = pmv.deckId != null ? deckMapper.selectById(pmv.deckId) : null;
+            if (deck == null || !ReviewStatus.isApproved(deck.reviewStatus)) {
+                continue;
+            }
+            if (!ReviewStatus.isApproved(pmv.reviewStatus)) {
+                continue;
+            }
             Map<String, Object> entry = new HashMap<>();
             entry.put("deckId", pmv.deckId);
             entry.put("pmvId", pmv.pmvId);
@@ -148,11 +200,8 @@ public class DeckCatalogService {
             entry.put("author", pmv.author);
             entry.put("description", pmv.description);
             entry.put("link", pmv.link);
-            CofDeck deck = pmv.deckId != null ? deckMapper.selectById(pmv.deckId) : null;
-            if (deck != null) {
-                entry.put("libraryName", deck.name);
-                entry.put("libraryId", deck.folderName != null ? deck.folderName : String.valueOf(deck.id));
-            }
+            entry.put("libraryName", deck.name);
+            entry.put("libraryId", deck.folderName != null ? deck.folderName : String.valueOf(deck.id));
             index.add(entry);
         }
         index.sort(Comparator
@@ -246,6 +295,9 @@ public class DeckCatalogService {
             int copies = libraryCopyCount(library, settings);
             for (int copy = 0; copy < copies; copy++) {
                 for (CardLibraryDto.CardDto cardDto : library.cards) {
+                    if (cardDto.approvedForPlay == Boolean.FALSE) {
+                        continue;
+                    }
                     Card card = new Card();
                     card.id = copies == 1 ? cardDto.id : cardDto.id + "#copy" + (copy + 1);
                     card.libraryId = cardDto.libraryId;
@@ -263,10 +315,23 @@ public class DeckCatalogService {
     }
 
     private CardLibraryDto assembleBundle(CofDeck deck) {
+        return assembleBundle(deck, null);
+    }
+
+    private CardLibraryDto assembleBundle(CofDeck deck, String viewerClientId) {
         Map<Integer, String> pmvNames = deckPmvMapper.listByDeckId(deck.id).stream()
+                .filter(p -> ReviewStatus.isVisibleToUser(p.reviewStatus, p.submitterClientId, viewerClientId))
                 .collect(Collectors.toMap(p -> p.pmvId, p -> p.name, (a, b) -> a));
         CardLibraryDto dto = toSummary(deck);
+        dto.reviewStatus = deck.reviewStatus;
+        dto.submitterClientId = deck.submitterClientId;
         for (CofCard row : cardMapper.listByDeckId(deck.id)) {
+            if (!ReviewStatus.isVisibleToUser(row.reviewStatus, row.submitterClientId, viewerClientId)) {
+                continue;
+            }
+            if (!pmvNames.containsKey(row.pmvId)) {
+                continue;
+            }
             CardLibraryDto.CardDto card = new CardLibraryDto.CardDto();
             card.id = row.cardUid;
             card.libraryId = publicLibraryId(deck);
@@ -276,9 +341,21 @@ public class DeckCatalogService {
             card.shot = row.shot;
             card.imageUrl = row.imageUrl;
             card.backUrl = deck.backUrl;
+            card.approvedForPlay = isDeckPlayable(deck)
+                    && ReviewStatus.isApproved(row.reviewStatus)
+                    && ReviewStatus.isApproved(pmvReviewStatus(deck.id, row.pmvId));
             dto.cards.add(card);
         }
         return dto;
+    }
+
+    private String pmvReviewStatus(long deckId, int pmvId) {
+        CofDeckPmv pmv = deckPmvMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<CofDeckPmv>()
+                        .eq("deck_id", deckId)
+                        .eq("pmv_id", pmvId)
+                        .last("LIMIT 1"));
+        return pmv != null ? pmv.reviewStatus : ReviewStatus.PENDING;
     }
 
     private static String publicLibraryId(CofDeck deck) {

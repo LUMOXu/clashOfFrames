@@ -6,6 +6,10 @@ server:
     min-response-size: 256
 
 spring:
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 20MB
   application:
     name: cof-boot
   profiles:

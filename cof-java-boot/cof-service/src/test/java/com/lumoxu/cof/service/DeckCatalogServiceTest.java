@@ -1,8 +1,10 @@
 package com.lumoxu.cof.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lumoxu.cof.common.catalog.ReviewStatus;
 import com.lumoxu.cof.domain.entity.CofCard;
 import com.lumoxu.cof.domain.entity.CofDeck;
+import com.lumoxu.cof.domain.entity.CofDeckPmv;
 import com.lumoxu.cof.domain.mapper.CofCardMapper;
 import com.lumoxu.cof.domain.mapper.CofDeckMapper;
 import com.lumoxu.cof.domain.mapper.CofDeckPmvMapper;
@@ -53,8 +55,14 @@ class DeckCatalogServiceTest {
         deck.cardCount = 1;
         deck.pmvCount = 1;
         deck.enabled = true;
+        deck.reviewStatus = ReviewStatus.APPROVED;
         when(deckMapper.selectById(1L)).thenReturn(deck);
-        when(deckPmvMapper.listByDeckId(1L)).thenReturn(List.of());
+        CofDeckPmv pmv = new CofDeckPmv();
+        pmv.deckId = 1L;
+        pmv.pmvId = 1;
+        pmv.name = "PMV 1";
+        pmv.reviewStatus = ReviewStatus.APPROVED;
+        when(deckPmvMapper.listByDeckId(1L)).thenReturn(List.of(pmv));
         CofCard card = new CofCard();
         card.deckId = 1L;
         card.pmvId = 1;
@@ -62,6 +70,7 @@ class DeckCatalogServiceTest {
         card.shot = "a";
         card.imageUrl = "/cards/1/1/a.jpg";
         card.cardUid = "1/1/a";
+        card.reviewStatus = ReviewStatus.APPROVED;
         when(cardMapper.listByDeckId(1L)).thenReturn(List.of(card));
 
         GameSettings settings = GameSettings.defaultSettings();
@@ -81,11 +90,13 @@ class DeckCatalogServiceTest {
         deck.folderName = "cached-deck";
         deck.backUrl = "/cards/2/back.png";
         deck.enabled = true;
+        deck.reviewStatus = ReviewStatus.APPROVED;
         when(deckMapper.selectById(2L)).thenReturn(deck);
         when(deckPmvMapper.listByDeckId(2L)).thenReturn(List.of());
         when(cardMapper.listByDeckId(2L)).thenReturn(List.of());
 
         CardLibraryDto first = deckCatalogService.loadDeckBundle(2L);
+        assertEquals("cached-deck", first.id);
         CardLibraryDto second = deckCatalogService.loadDeckBundle(2L);
         assertEquals(first.id, second.id);
         assertTrue(redis.get(RedisKeys.deckBundle("2"), CardLibraryDto.class).isPresent());
@@ -101,6 +112,7 @@ class DeckCatalogServiceTest {
         card.libraryId = "1";
         card.pmvId = 1;
         card.imageUrl = "/cards/1/1/a.jpg";
+        card.approvedForPlay = true;
         lib.cards.add(card);
         catalog.libraries.add(lib);
         redis.set(RedisKeys.roomCatalog("room-x"), catalog, null);
@@ -118,6 +130,7 @@ class DeckCatalogServiceTest {
         lib.folderName = "folder-deck";
         CardLibraryDto.CardDto card = new CardLibraryDto.CardDto();
         card.id = "folder-deck/1/a";
+        card.approvedForPlay = true;
         lib.cards.add(card);
         catalog.libraries.add(lib);
         redis.set(RedisKeys.roomCatalog("room-num"), catalog, null);

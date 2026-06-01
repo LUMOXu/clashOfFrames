@@ -10,9 +10,16 @@ import java.util.List;
 @Mapper
 public interface CofDeckMapper extends BaseMapper<CofDeck> {
 
-    @Select("SELECT * FROM cof_deck WHERE enabled = TRUE ORDER BY id")
+    @Select("SELECT * FROM cof_deck WHERE enabled = TRUE AND review_status = 'approved' ORDER BY id")
     List<CofDeck> listEnabledDecks();
 
     @Select("SELECT * FROM cof_deck WHERE folder_name = #{folderName} LIMIT 1")
     CofDeck findByFolderName(String folderName);
+
+    @Select("""
+            SELECT * FROM cof_deck
+            WHERE submitter_client_id = #{clientId}
+            ORDER BY updated_at DESC
+            """)
+    List<CofDeck> listBySubmitter(String clientId);
 }

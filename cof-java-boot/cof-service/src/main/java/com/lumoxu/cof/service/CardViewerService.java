@@ -29,10 +29,14 @@ public class CardViewerService {
     }
 
     public Map<String, Object> buildViewerPayload(List<String> libraryIds) {
+        return buildViewerPayload(libraryIds, null);
+    }
+
+    public Map<String, Object> buildViewerPayload(List<String> libraryIds, String viewerClientId) {
         Set<String> selected = libraryIds == null || libraryIds.isEmpty()
                 ? null
                 : Set.copyOf(libraryIds);
-        List<CardLibraryDto> libraries = deckCatalogService.listFullLibraries().stream()
+        List<CardLibraryDto> libraries = deckCatalogService.listFullLibrariesForViewer(viewerClientId).stream()
                 .filter(lib -> selected == null || deckCatalogService.isLibrarySelected(lib, List.copyOf(selected)))
                 .collect(Collectors.toList());
         List<String> assets = new ArrayList<>();

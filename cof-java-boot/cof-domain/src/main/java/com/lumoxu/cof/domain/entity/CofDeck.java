@@ -20,4 +20,6 @@ public class CofDeck {
     public Integer pmvCount;
     public Boolean enabled;
     public Long updatedAt;
+    public String submitterClientId;
+    public String reviewStatus;
 }

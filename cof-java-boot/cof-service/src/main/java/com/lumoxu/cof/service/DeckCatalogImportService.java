@@ -3,6 +3,7 @@ package com.lumoxu.cof.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lumoxu.cof.common.catalog.ReviewStatus;
 import com.lumoxu.cof.domain.entity.CofCard;
 import com.lumoxu.cof.domain.entity.CofDeck;
 import com.lumoxu.cof.domain.entity.CofDeckPmv;
@@ -106,6 +107,8 @@ public class DeckCatalogImportService {
         deck.version = manifestData.version;
         deck.link = manifestData.link;
         deck.enabled = true;
+        deck.reviewStatus = ReviewStatus.APPROVED;
+        deck.submitterClientId = null;
         deck.updatedAt = now;
         if (deck.id == null) {
             // back_url is NOT NULL; real path is assigned after insert when id is known.
@@ -133,6 +136,8 @@ public class DeckCatalogImportService {
             pmv.author = entry.author;
             pmv.description = entry.description;
             pmv.link = entry.link;
+            pmv.reviewStatus = ReviewStatus.APPROVED;
+            pmv.submitterClientId = null;
             deckPmvMapper.insert(pmv);
         }
 
@@ -234,6 +239,8 @@ public class DeckCatalogImportService {
         String key = pmvId + ":" + shot;
         ResourcePathMigration.MigratedCard migrated = migratedByKey.get(key);
         CofCard card = new CofCard();
+        card.reviewStatus = ReviewStatus.APPROVED;
+        card.submitterClientId = null;
         card.deckId = deckId;
         card.pmvId = pmvId;
         card.cardId = shot;

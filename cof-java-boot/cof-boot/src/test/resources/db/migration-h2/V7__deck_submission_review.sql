@@ -1,0 +1,6 @@
+ALTER TABLE cof_deck ADD COLUMN IF NOT EXISTS submitter_client_id VARCHAR(64);
+ALTER TABLE cof_deck ADD COLUMN IF NOT EXISTS review_status VARCHAR(16) NOT NULL DEFAULT 'approved';
+ALTER TABLE cof_deck_pmv ADD COLUMN IF NOT EXISTS submitter_client_id VARCHAR(64);
+ALTER TABLE cof_deck_pmv ADD COLUMN IF NOT EXISTS review_status VARCHAR(16) NOT NULL DEFAULT 'approved';
+ALTER TABLE cof_card ADD COLUMN IF NOT EXISTS submitter_client_id VARCHAR(64);
+ALTER TABLE cof_card ADD COLUMN IF NOT EXISTS review_status VARCHAR(16) NOT NULL DEFAULT 'approved';

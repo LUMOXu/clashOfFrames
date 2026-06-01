@@ -15,4 +15,6 @@ public class CofDeckPmv {
     public String author;
     public String description;
     public String link;
+    public String submitterClientId;
+    public String reviewStatus;
 }

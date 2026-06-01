@@ -16,4 +16,6 @@ public class CofCard {
     public String fileName;
     public String imageUrl;
     public String cardUid;
+    public String submitterClientId;
+    public String reviewStatus;
 }
