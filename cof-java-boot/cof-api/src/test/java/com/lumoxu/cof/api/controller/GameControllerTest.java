@@ -7,6 +7,7 @@ import com.lumoxu.cof.api.ws.GameSyncTracker;
 import com.lumoxu.cof.api.ws.WsBroadcastService;
 import com.lumoxu.cof.service.GameRuntimeService;
 import com.lumoxu.cof.service.RoomService;
+import com.lumoxu.cof.service.UserStatsService;
 import com.lumoxu.cof.service.model.GameStateBundle;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -30,6 +31,8 @@ class GameControllerTest extends ControllerTestSupport {
     private WsBroadcastService broadcastService;
     @MockBean
     private GameSyncTracker syncTracker;
+    @MockBean
+    private UserStatsService userStatsService;
 
     @Test
     void getUnauthorized() throws Exception {

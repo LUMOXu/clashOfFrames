@@ -9,6 +9,7 @@ import com.lumoxu.cof.common.api.ApiResponse;
 import com.lumoxu.cof.engine.PublicGame;
 import com.lumoxu.cof.service.GameRuntimeService;
 import com.lumoxu.cof.service.RoomService;
+import com.lumoxu.cof.service.UserStatsService;
 import com.lumoxu.cof.service.model.RoomState;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,16 +28,27 @@ public class GameController {
     private final RoomService roomService;
     private final WsBroadcastService broadcastService;
     private final GameSyncTracker syncTracker;
+    private final UserStatsService userStatsService;
 
     public GameController(
             GameRuntimeService gameRuntimeService,
             RoomService roomService,
             WsBroadcastService broadcastService,
-            GameSyncTracker syncTracker) {
+            GameSyncTracker syncTracker,
+            UserStatsService userStatsService) {
         this.gameRuntimeService = gameRuntimeService;
         this.roomService = roomService;
         this.broadcastService = broadcastService;
         this.syncTracker = syncTracker;
+        this.userStatsService = userStatsService;
+    }
+
+    private void persistIfFinished(String statusBefore, String gameId) {
+        var bundle = gameRuntimeService.getRequired(gameId);
+        if (justFinished(statusBefore, bundle.game.status)
+                && userStatsService.recordFinishedGame(bundle.game)) {
+            gameRuntimeService.save(bundle.game);
+        }
     }
 
     @GetMapping("/{gameId}")
@@ -58,6 +70,7 @@ public class GameController {
         broadcastService.broadcastAudio(game.roomId, game.id, "play-card");
         if (justFinished(statusBefore, game.status)) {
             broadcastService.broadcastAudio(game.roomId, game.id, "end-game");
+            persistIfFinished(statusBefore, gameId);
         }
         return ApiResponse.ok(Map.of("sync", sync));
     }
@@ -72,6 +85,7 @@ public class GameController {
         broadcastService.broadcastAudio(game.roomId, game.id, "ring-bell");
         if (justFinished(statusBefore, game.status)) {
             broadcastService.broadcastAudio(game.roomId, game.id, "end-game");
+            persistIfFinished(statusBefore, gameId);
         }
         return ApiResponse.ok(Map.of("sync", sync));
     }

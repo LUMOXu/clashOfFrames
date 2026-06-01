@@ -99,7 +99,9 @@ public class GameTickOrchestrator {
             return;
         }
 
-        userStatsService.recordFinishedGame(game);
+        if ("finished".equals(game.status)) {
+            userStatsService.recordFinishedGame(game);
+        }
         gameRuntimeService.save(game);
         PublicGame publicGame = gameRuntimeService.toPublicGame(game);
         ComputerTickOutcome outcome = broadcastOutcome;
