@@ -40,6 +40,6 @@ describe("lobbyStore", () => {
     await store.loadLeaderboard();
 
     expect(store.profile).toEqual({ wins: 3 });
-    expect(store.leaderboard).toHaveLength(1);
+    expect(store.leaderboard?.players).toHaveLength(1);
   });
 });

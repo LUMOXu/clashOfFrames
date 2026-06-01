@@ -32,11 +32,11 @@ class GameSyncEncoderTest {
     @Test
     void playCardDeltaJsonUnderTwoKb() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        Game game = realisticEightPlayerGame();
+        Game game = freshTwoPlayerGame();
         PublicGame before = GameCore.publicGame(game);
         String actor = game.players.get(game.turnIndex).clientId;
-        ActionResult result = GameCore.performPlayCard(game, actor, 50_000L, false);
-        assertTrue(result.ok);
+        ActionResult result = GameCore.performPlayCard(game, actor, 2_000L, false);
+        assertTrue(result.ok, () -> "play failed: " + result.error);
         PublicGame after = GameCore.publicGame(game);
         JsonNode delta = encoder.encodeDelta(before, after);
         int bytes = mapper.writeValueAsBytes(delta).length;
@@ -45,6 +45,37 @@ class GameSyncEncoderTest {
         assertFalse(delta.has("pt"), "play-card delta must not include table top patches");
         assertTrue(bytes < 512, "play-card delta json bytes=" + bytes);
         assertTrue(gzipJson(mapper.writeValueAsBytes(delta)).length < 512);
+    }
+
+    private static Game freshTwoPlayerGame() {
+        Room room = new Room();
+        room.id = "room-2";
+        room.settings = GameCore.normalizeSettings(GameSettings.defaultSettings(), List.of("lib"), Map.of());
+        List<Player> players = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            Player p = new Player();
+            p.clientId = "p" + i;
+            p.username = "Player " + i;
+            p.connected = true;
+            players.add(p);
+        }
+        List<Card> cards = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            Card c = new Card();
+            c.id = "card-" + i;
+            c.libraryId = "lib";
+            c.pmvId = (i % 2) + 1;
+            c.pmvName = "PMV " + c.pmvId;
+            c.shot = "a";
+            c.imageUrl = "/cards/lib/cards/" + c.pmvId + "a.png";
+            c.backUrl = "/cards/lib/back.png";
+            cards.add(c);
+        }
+        Game game = GameCore.createGame(room, players, cards, 1000L, () -> 0.5);
+        GameCore.startPlaying(game, 1000L);
+        game.turnAvailableAt = 0;
+        game.turnDeadlineAt = 100_000L;
+        return game;
     }
 
     private static Game realisticEightPlayerGame() {

@@ -1,5 +1,6 @@
 package com.lumoxu.cof.service;
 
+import com.lumoxu.cof.engine.Card;
 import com.lumoxu.cof.engine.Game;
 import com.lumoxu.cof.engine.GameCore;
 import com.lumoxu.cof.engine.GameSettings;
@@ -54,7 +55,13 @@ class ComputerPlayerAdvanceServiceTest {
         bot.isComputer = true;
         bot.computerId = "computer_normal";
         bot.ready = true;
-        Game game = GameCore.createGame(room, List.of(human, bot), List.of());
+        Card c1 = new Card();
+        c1.id = "c1";
+        Card c2 = new Card();
+        c2.id = "c2";
+        Card c3 = new Card();
+        c3.id = "c3";
+        Game game = GameCore.createGame(room, List.of(human, bot), List.of(c1, c2, c3));
         GameCore.startPlaying(game, 1000L);
         game.turnIndex = 1;
         game.turnAvailableAt = 0;
@@ -62,8 +69,8 @@ class ComputerPlayerAdvanceServiceTest {
 
         long now = System.currentTimeMillis();
         advanceService.advance(game, now);
-        advanceService.advance(game, now);
-        ComputerTickOutcome outcome = advanceService.advance(game, now);
+        advanceService.advance(game, now + 500);
+        ComputerTickOutcome outcome = advanceService.advance(game, now + 10_000);
 
         assertTrue(outcome.played || game.playCount > 0);
     }

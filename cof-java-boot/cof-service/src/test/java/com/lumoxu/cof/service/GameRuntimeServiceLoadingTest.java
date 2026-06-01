@@ -1,6 +1,7 @@
 package com.lumoxu.cof.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lumoxu.cof.engine.Card;
 import com.lumoxu.cof.engine.Game;
 import com.lumoxu.cof.engine.GameSettings;
 import com.lumoxu.cof.engine.Player;
@@ -52,7 +53,11 @@ class GameRuntimeServiceLoadingTest {
         bot.isComputer = true;
         players.add(bot);
 
-        Game game = gameRuntimeService.createGame(engineRoom, players, List.of());
+        Card c1 = new Card();
+        c1.id = "c1";
+        Card c2 = new Card();
+        c2.id = "c2";
+        Game game = gameRuntimeService.createGame(engineRoom, players, List.of(c1, c2));
         room.gameId = game.id;
 
         gameRuntimeService.updateLoadingProgress(

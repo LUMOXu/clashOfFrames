@@ -70,7 +70,7 @@ class DeckCatalogServiceTest {
 
         CatalogBundleDto bundle = redis.get(RedisKeys.roomCatalog("room-1"), CatalogBundleDto.class).orElseThrow();
         assertEquals(1, bundle.libraries.size());
-        assertEquals("1", bundle.libraries.get(0).id);
+        assertEquals("test-deck", bundle.libraries.get(0).id);
     }
 
     @Test
@@ -108,6 +108,28 @@ class DeckCatalogServiceTest {
         GameSettings settings = GameSettings.defaultSettings();
         settings.libraryIds = List.of("1");
         assertFalse(deckCatalogService.expandedCardsFromRoom("room-x", settings).isEmpty());
+    }
+
+    @Test
+    void expandedCardsMatchesNumericLibraryIdAgainstFolderPublicId() {
+        CatalogBundleDto catalog = new CatalogBundleDto();
+        CardLibraryDto lib = new CardLibraryDto();
+        lib.id = "folder-deck";
+        lib.folderName = "folder-deck";
+        CardLibraryDto.CardDto card = new CardLibraryDto.CardDto();
+        card.id = "folder-deck/1/a";
+        lib.cards.add(card);
+        catalog.libraries.add(lib);
+        redis.set(RedisKeys.roomCatalog("room-num"), catalog, null);
+
+        CofDeck deck = new CofDeck();
+        deck.id = 42L;
+        deck.folderName = "folder-deck";
+        when(deckMapper.findByFolderName("folder-deck")).thenReturn(deck);
+
+        GameSettings settings = GameSettings.defaultSettings();
+        settings.libraryIds = List.of("42");
+        assertEquals(1, deckCatalogService.expandedCardsFromRoom("room-num", settings).size());
     }
 
     @Test

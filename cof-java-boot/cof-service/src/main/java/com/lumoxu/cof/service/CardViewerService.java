@@ -33,7 +33,7 @@ public class CardViewerService {
                 ? null
                 : Set.copyOf(libraryIds);
         List<CardLibraryDto> libraries = deckCatalogService.listFullLibraries().stream()
-                .filter(lib -> selected == null || selected.contains(lib.id))
+                .filter(lib -> selected == null || deckCatalogService.isLibrarySelected(lib, List.copyOf(selected)))
                 .collect(Collectors.toList());
         List<String> assets = new ArrayList<>();
         assets.add("/assets/bell.png");

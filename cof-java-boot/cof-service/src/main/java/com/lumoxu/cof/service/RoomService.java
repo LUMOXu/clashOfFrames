@@ -233,7 +233,7 @@ public class RoomService {
     public Map<String, Object> assetManifest(RoomState room) {
         List<String> libraryIds = room.settings.libraryIds != null ? room.settings.libraryIds : List.of();
         List<CardLibraryDto> full = deckCatalogService.listFullLibraries().stream()
-                .filter(lib -> libraryIds.isEmpty() || libraryIds.contains(lib.id))
+                .filter(lib -> deckCatalogService.isLibrarySelected(lib, libraryIds))
                 .collect(Collectors.toList());
         java.util.LinkedHashSet<String> assets = new java.util.LinkedHashSet<>();
         assets.add("/assets/bell.png");

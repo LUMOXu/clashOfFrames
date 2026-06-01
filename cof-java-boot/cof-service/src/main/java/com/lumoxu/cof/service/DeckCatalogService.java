@@ -173,18 +173,77 @@ public class DeckCatalogService {
         }
     }
 
+    /**
+     * Matches {@code settings.libraryIds} against a catalog entry. IDs may be numeric deck ids
+     * (e.g. {@code "1"}) or public folder names (e.g. {@code 基础包@ThePMVPanel'25}).
+     */
+    public boolean isLibrarySelected(CardLibraryDto library, List<String> selectedIds) {
+        if (selectedIds == null || selectedIds.isEmpty()) {
+            return true;
+        }
+        for (String selectedId : selectedIds) {
+            if (libraryMatches(library, selectedId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public int libraryCopyCount(CardLibraryDto library, GameSettings settings) {
+        if (settings == null || settings.libraryCopies == null || settings.libraryCopies.isEmpty()) {
+            return 1;
+        }
+        Map<String, Integer> copies = settings.libraryCopies;
+        Integer direct = copies.get(library.id);
+        if (direct != null) {
+            return Math.max(1, direct);
+        }
+        if (library.folderName != null) {
+            direct = copies.get(library.folderName);
+            if (direct != null) {
+                return Math.max(1, direct);
+            }
+        }
+        Long deckId = resolveDeckId(library.id);
+        if (deckId != null) {
+            direct = copies.get(String.valueOf(deckId));
+            if (direct != null) {
+                return Math.max(1, direct);
+            }
+        }
+        for (Map.Entry<String, Integer> entry : copies.entrySet()) {
+            if (libraryMatches(library, entry.getKey())) {
+                return Math.max(1, entry.getValue());
+            }
+        }
+        return 1;
+    }
+
+    private boolean libraryMatches(CardLibraryDto library, String selectedId) {
+        if (selectedId == null || selectedId.isBlank() || library == null) {
+            return false;
+        }
+        if (selectedId.equals(library.id)) {
+            return true;
+        }
+        if (library.folderName != null && selectedId.equals(library.folderName)) {
+            return true;
+        }
+        Long selectedDeckId = resolveDeckId(selectedId);
+        Long libraryDeckId = resolveDeckId(library.id);
+        return selectedDeckId != null && selectedDeckId.equals(libraryDeckId);
+    }
+
     private List<Card> expandFromLibraries(List<CardLibraryDto> libraries, GameSettings settings) {
         List<String> selected = settings != null && settings.libraryIds != null
                 ? settings.libraryIds
                 : List.of();
         List<Card> cards = new ArrayList<>();
         for (CardLibraryDto library : libraries) {
-            if (!selected.isEmpty() && !selected.contains(library.id)) {
+            if (!isLibrarySelected(library, selected)) {
                 continue;
             }
-            int copies = settings != null && settings.libraryCopies != null
-                    ? settings.libraryCopies.getOrDefault(library.id, 1)
-                    : 1;
+            int copies = libraryCopyCount(library, settings);
             for (int copy = 0; copy < copies; copy++) {
                 for (CardLibraryDto.CardDto cardDto : library.cards) {
                     Card card = new Card();
