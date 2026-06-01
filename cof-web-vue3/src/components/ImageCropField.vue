@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import Cropper from "cropperjs";
 import "cropperjs/dist/cropper.css";
-import { onBeforeUnmount, ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch, withDefaults } from "vue";
 
-const props = defineProps<{
-  label?: string;
-  aspectRatio?: number;
-}>();
+const props = withDefaults(
+  defineProps<{
+    label?: string;
+    aspectRatio?: number;
+    outputWidth?: number;
+    outputHeight?: number;
+    hint?: string;
+  }>(),
+  {
+    outputWidth: 720,
+    outputHeight: 1087,
+    hint: "拖动与缩放选区，提交后服务端会统一压缩为 JPEG。",
+  },
+);
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const imageEl = ref<HTMLImageElement | null>(null);
@@ -34,7 +44,7 @@ watch(previewUrl, async (url) => {
   await new Promise((r) => requestAnimationFrame(r));
   if (!imageEl.value) return;
   cropper = new Cropper(imageEl.value, {
-    aspectRatio: props.aspectRatio ?? 720 / 1087,
+    aspectRatio: props.aspectRatio ?? props.outputWidth / props.outputHeight,
     viewMode: 1,
     autoCropArea: 0.9,
     responsive: true,
@@ -59,8 +69,8 @@ function getCroppedBlob(): Promise<{ blob: Blob; crop: { x: number; y: number; w
     }
     const data = cropper.getData(true);
     const canvas = cropper.getCroppedCanvas({
-      width: 720,
-      height: 1087,
+      width: props.outputWidth,
+      height: props.outputHeight,
       imageSmoothingEnabled: true,
       imageSmoothingQuality: "high",
     });
@@ -97,7 +107,7 @@ defineExpose({ pickFile, getCroppedBlob, hasImage: () => Boolean(cropper) });
     <div v-show="previewUrl" ref="containerEl" class="crop-container">
       <img ref="imageEl" alt="crop" class="crop-source" />
     </div>
-    <p class="muted crop-hint">拖动与缩放选区，提交后服务端会统一为 720×1087 JPEG（约 100KB）。</p>
+    <p class="muted crop-hint">{{ hint }}</p>
   </div>
 </template>
 

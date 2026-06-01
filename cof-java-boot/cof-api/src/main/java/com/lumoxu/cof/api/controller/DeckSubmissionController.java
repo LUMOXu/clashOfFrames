@@ -27,6 +27,12 @@ public class DeckSubmissionController {
         this.submissionService = submissionService;
     }
 
+    @GetMapping("/decks/editable")
+    public ApiResponse<Map<String, Object>> editableDecks() {
+        String clientId = AuthContext.get().clientId.toString();
+        return ApiResponse.ok(Map.of("decks", submissionService.listEditableDecks(clientId)));
+    }
+
     @GetMapping("/mine")
     public ApiResponse<Map<String, Object>> mine() {
         String clientId = AuthContext.get().clientId.toString();

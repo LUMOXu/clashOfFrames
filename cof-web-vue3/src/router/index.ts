@@ -109,8 +109,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/pmv-index",
     name: "pmv-index",
-    component: () => import("@/views/PmvIndexView.vue"),
-    meta: { requiresAuth: true },
+    redirect: { name: "card-submit", hash: "#pmv-guide" },
   },
   { path: "/home", redirect: { name: "home" } },
   { path: "/create-room", redirect: "/rooms/create" },

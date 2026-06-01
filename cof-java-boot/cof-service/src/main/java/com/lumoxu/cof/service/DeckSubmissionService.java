@@ -52,6 +52,39 @@ public class DeckSubmissionService {
         this.deckCatalogService = deckCatalogService;
     }
 
+    public List<Map<String, Object>> listEditableDecks(String clientId) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (CofDeck deck : deckMapper.listBySubmitter(clientId)) {
+            if (ReviewStatus.REJECTED.equalsIgnoreCase(deck.reviewStatus)) {
+                continue;
+            }
+            Map<String, Object> row = new HashMap<>();
+            row.put("id", deck.id);
+            row.put("name", deck.name);
+            row.put("curator", deck.curator);
+            row.put("reviewStatus", deck.reviewStatus);
+            row.put("owned", true);
+            rows.add(row);
+        }
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        for (Map<String, Object> row : rows) {
+            seen.add(((Number) row.get("id")).longValue());
+        }
+        for (CofDeck deck : deckMapper.listEnabledDecks()) {
+            if (seen.contains(deck.id)) {
+                continue;
+            }
+            Map<String, Object> row = new HashMap<>();
+            row.put("id", deck.id);
+            row.put("name", deck.name);
+            row.put("curator", deck.curator);
+            row.put("reviewStatus", deck.reviewStatus);
+            row.put("owned", clientId.equals(deck.submitterClientId));
+            rows.add(row);
+        }
+        return rows;
+    }
+
     public List<Map<String, Object>> listMine(String clientId) {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (CofDeck deck : deckMapper.listBySubmitter(clientId)) {
@@ -109,8 +142,8 @@ public class DeckSubmissionService {
         if (fileSize > 15 * 1024 * 1024) {
             throw new CofException(ErrorCode.BAD_REQUEST, "图片过大（最大 15MB）。");
         }
-        byte[] jpeg = imageProcessor.processJpeg(file, cropX, cropY, cropW, cropH);
-        Path backPath = deckDir(deckId).resolve("back.png");
+        byte[] jpeg = imageProcessor.processDeckBack(file, cropX, cropY, cropW, cropH);
+        Path backPath = deckDir(deckId).resolve("back.jpg");
         imageProcessor.writeJpegToPath(jpeg, backPath);
         deck.backUrl = ResourcePathMigration.backUrl(deckId);
         deck.updatedAt = System.currentTimeMillis();
@@ -171,7 +204,7 @@ public class DeckSubmissionService {
         if (fileSize > 15 * 1024 * 1024) {
             throw new CofException(ErrorCode.BAD_REQUEST, "图片过大（最大 15MB）。");
         }
-        byte[] jpeg = imageProcessor.processJpeg(file, cropX, cropY, cropW, cropH);
+        byte[] jpeg = imageProcessor.processCardFrame(file, cropX, cropY, cropW, cropH);
         Path cardPath = deckDir(deckId).resolve(String.valueOf(pmvId)).resolve(normalizedShot + ".jpg");
         imageProcessor.writeJpegToPath(jpeg, cardPath);
         String imageUrl = ResourcePathMigration.cardUrl(deckId, pmvId, normalizedShot, "jpg");

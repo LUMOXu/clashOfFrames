@@ -56,6 +56,17 @@ public class GameTickOrchestrator {
 
     private void tickRoom(RoomState room, long now) {
         if (room.gameId == null || room.gameId.isBlank()) {
+            if ("waiting".equals(room.status)) {
+                boolean votesChanged = roomService.evaluateStartVotes(room, now);
+                if (roomService.tryAutoStartFromVotes(room, now)) {
+                    gameRuntimeService.get(room.gameId).ifPresent(bundle -> {
+                        PublicGame publicGame = gameRuntimeService.toPublicGame(bundle.game);
+                        broadcaster.ifPresent(b -> b.onGameUpdated(room, publicGame, ComputerTickOutcome.none()));
+                    });
+                } else if (votesChanged || room.startAt != null) {
+                    roomService.save(room);
+                }
+            }
             return;
         }
         var bundleOpt = gameRuntimeService.get(room.gameId);

@@ -88,6 +88,7 @@ function displayCardsFor(playerId: string) {
       >
         <div class="station-name">
           {{ item.player.username }}
+          <span v-if="playerMap.get(item.player.clientId)?.isComputer" class="pill muted">人机</span>
           <template v-if="item.player.connected === false">（退出）</template>
           <template v-if="item.player.eliminated">（淘汰）</template>
         </div>

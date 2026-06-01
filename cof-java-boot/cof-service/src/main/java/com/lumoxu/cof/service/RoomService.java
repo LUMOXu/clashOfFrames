@@ -34,6 +34,7 @@ public class RoomService {
     private final UserStatsService userStatsService;
     private final PlayerRoomService playerRoomService;
     private final PlayerPresenceService playerPresenceService;
+    private final RoomStartVoteService roomStartVoteService;
 
     public RoomService(
             JsonRedisOps redis,
@@ -43,7 +44,8 @@ public class RoomService {
             ComputerPlayerService computerPlayerService,
             UserStatsService userStatsService,
             PlayerRoomService playerRoomService,
-            PlayerPresenceService playerPresenceService) {
+            PlayerPresenceService playerPresenceService,
+            RoomStartVoteService roomStartVoteService) {
         this.redis = redis;
         this.metaService = metaService;
         this.deckCatalogService = deckCatalogService;
@@ -52,6 +54,7 @@ public class RoomService {
         this.userStatsService = userStatsService;
         this.playerRoomService = playerRoomService;
         this.playerPresenceService = playerPresenceService;
+        this.roomStartVoteService = roomStartVoteService;
     }
 
     public RoomState createRoom(String hostId, String hostUsername, GameSettings settings, List<String> computerIds) {
@@ -92,10 +95,25 @@ public class RoomService {
         return redis.setMembers(RedisKeys.ROOM_INDEX).stream()
                 .map(this::get)
                 .flatMap(java.util.Optional::stream)
-                .filter(room -> includePrivate || room.settings == null || room.settings.isPublic)
-                .filter(room -> "waiting".equals(room.status) || "loading".equals(room.status))
+                .filter(room -> includePrivate || room.settings == null || room.settings.isPublic || isRoomMember(room, clientId))
+                .filter(room -> isVisibleInLobby(room, clientId))
                 .map(this::summary)
                 .collect(Collectors.toList());
+    }
+
+    private static boolean isRoomMember(RoomState room, String clientId) {
+        if (clientId == null || clientId.isBlank()) {
+            return false;
+        }
+        return (room.players != null && room.players.contains(clientId))
+                || (room.spectators != null && room.spectators.contains(clientId));
+    }
+
+    private static boolean isVisibleInLobby(RoomState room, String clientId) {
+        if ("waiting".equals(room.status) || "loading".equals(room.status)) {
+            return true;
+        }
+        return isRoomMember(room, clientId);
     }
 
     public Map<String, Object> join(RoomState room, String clientId, String username) {
@@ -185,6 +203,7 @@ public class RoomService {
         }
         room.players.add(clientId);
         userStatsService.ensureStats("computer:" + computerId, profile.name, true, computerId);
+        roomStartVoteService.evaluateStartVotes(room, System.currentTimeMillis());
         save(room);
     }
 
@@ -321,17 +340,42 @@ public class RoomService {
     }
 
     public RoomState addStartVote(RoomState room, String clientId) {
+        if (PlayerPresenceService.isComputerClient(clientId)) {
+            throw new CofException(ErrorCode.BAD_REQUEST, "人机不能投票。");
+        }
         if (!room.startVotes.contains(clientId)) {
             room.startVotes.add(clientId);
         }
+        roomStartVoteService.evaluateStartVotes(room, System.currentTimeMillis());
         save(room);
         return room;
     }
 
     public RoomState cancelStartVote(RoomState room, String clientId) {
         room.startVotes.remove(clientId);
+        roomStartVoteService.evaluateStartVotes(room, System.currentTimeMillis());
         save(room);
         return room;
+    }
+
+    public boolean evaluateStartVotes(RoomState room, long now) {
+        return roomStartVoteService.evaluateStartVotes(room, now);
+    }
+
+    public boolean tryAutoStartFromVotes(RoomState room, long now) {
+        if (!roomStartVoteService.isReadyToStart(room, now)) {
+            return false;
+        }
+        migrateHostIfNeeded(room);
+        if (room.hostId == null || PlayerPresenceService.isComputerClient(room.hostId)) {
+            return false;
+        }
+        startGame(room, room.hostId);
+        room.startAt = null;
+        room.startCountdownStartedAt = null;
+        room.startVotes.clear();
+        save(room);
+        return true;
     }
 
     public RoomState transferHost(RoomState room, String hostId, String newHostId) {
@@ -350,6 +394,8 @@ public class RoomService {
     public void removeComputer(RoomState room, String hostId, String computerId) {
         ensureHost(room, hostId);
         room.players.removeIf(id -> id.endsWith(":" + computerId));
+        room.startVotes.removeIf(PlayerPresenceService::isComputerClient);
+        roomStartVoteService.evaluateStartVotes(room, System.currentTimeMillis());
         if (RoomMaintenanceService.humanOccupants(room).isEmpty()) {
             autoDisband(room);
             return;

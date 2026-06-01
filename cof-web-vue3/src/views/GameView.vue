@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, toRef, watch } from "vue";
+import { useNowTicker } from "@/composables/useNowTicker";
 import { useRoute, useRouter } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import GameTable from "@/components/game/GameTable.vue";
@@ -19,6 +20,7 @@ const router = useRouter();
 const auth = useAuthStore();
 const gameStore = useGameStore();
 const roomStore = useRoomStore();
+const { now: clockNow } = useNowTicker(200);
 
 const gameId = computed(() => String(route.query.gameId || gameStore.currentGame?.id || ""));
 const game = computed(() => gameStore.currentGame);
@@ -29,7 +31,7 @@ const current = computed(() => {
   if (!g?.players?.length) return undefined;
   return g.players[g.turnIndex ?? 0];
 });
-const locked = computed(() => (game.value?.lockedUntil ?? 0) > Date.now());
+const locked = computed(() => (game.value?.lockedUntil ?? 0) > (clockNow.value ?? 0));
 const canPlay = computed(() => {
   const s = self.value;
   const g = game.value;
@@ -41,7 +43,7 @@ const canPlay = computed(() => {
       !s.eliminated &&
       (s.drawCount ?? 0) > 0 &&
       !locked.value &&
-      Date.now() >= (g.turnAvailableAt ?? 0),
+      (clockNow.value ?? 0) >= (g.turnAvailableAt ?? 0),
   );
 });
 const canRing = computed(

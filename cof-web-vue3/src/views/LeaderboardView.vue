@@ -5,7 +5,7 @@ import AppShell from "@/components/AppShell.vue";
 import PagePanel from "@/components/PagePanel.vue";
 import { useLobbyStore } from "@/stores/lobbyStore";
 import type { LeaderboardEntry } from "@/types/api";
-import { fmtNum, fmtPct, formatDate, isGodComputer } from "@/utils/format";
+import { fmtLeaderboardRate, fmtNum, formatDate, isGodComputer } from "@/utils/format";
 import { recordField } from "@/utils/record";
 
 const lobby = useLobbyStore();
@@ -15,6 +15,8 @@ type SortState = { key: string; dir: "asc" | "desc" };
 
 const playerSort = ref<SortState>({ key: "wins", dir: "desc" });
 const matchSort = ref<SortState>({ key: "playCount", dir: "desc" });
+
+const nullableSortKeys = new Set(["winRate", "correctRate", "averageRank"]);
 
 onMounted(async () => {
   loadError.value = "";
@@ -46,13 +48,40 @@ const computerColumns = computed(() =>
   })),
 );
 
+function sortValue(row: LeaderboardEntry, key: string): number | string | null {
+  if (key === "winRate") {
+    const games = Number(row.gamesPlayed);
+    if (!Number.isFinite(games) || games <= 0) return null;
+    return typeof row.winRate === "number" ? row.winRate : null;
+  }
+  if (key === "correctRate") {
+    const rings = Number(row.rings);
+    if (!Number.isFinite(rings) || rings <= 0) return null;
+    return typeof row.correctRate === "number" ? row.correctRate : null;
+  }
+  if (key === "averageRank") {
+    const games = Number(row.gamesPlayed);
+    if (!Number.isFinite(games) || games <= 0) return null;
+    return typeof row.averageRank === "number" ? row.averageRank : null;
+  }
+  const raw = row[key];
+  if (raw === null || raw === undefined || raw === "") return null;
+  return typeof raw === "number" ? raw : String(raw);
+}
+
 function sortRows(rows: LeaderboardEntry[], sort: SortState): LeaderboardEntry[] {
   const copy = [...rows];
+  const nullsLast = nullableSortKeys.has(sort.key);
   copy.sort((a, b) => {
-    const av = a[sort.key];
-    const bv = b[sort.key];
-    const an = typeof av === "number" ? av : String(av ?? "");
-    const bn = typeof bv === "number" ? bv : String(bv ?? "");
+    const av = sortValue(a, sort.key);
+    const bv = sortValue(b, sort.key);
+    if (nullsLast) {
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+    }
+    const an = av === null ? "" : av;
+    const bn = bv === null ? "" : bv;
     if (an < bn) return sort.dir === "asc" ? -1 : 1;
     if (an > bn) return sort.dir === "asc" ? 1 : -1;
     return 0;
@@ -82,6 +111,11 @@ function playerLabel(row: LeaderboardEntry): string {
 
 function isComputerRow(row: LeaderboardEntry): boolean {
   return Boolean(row.isComputer);
+}
+
+function replayLink(gameId?: string): { name: string; params: { gameId: string } } | null {
+  if (!gameId) return null;
+  return { name: "match-replay", params: { gameId } };
 }
 </script>
 
@@ -148,10 +182,16 @@ function isComputerRow(row: LeaderboardEntry): boolean {
                 </td>
                 <td>{{ recordField(row, "gamesPlayed", 0) }}</td>
                 <td>{{ recordField(row, "wins", 0) }}</td>
-                <td>{{ fmtPct(row.winRate) }}</td>
-                <td>{{ fmtPct(row.correctRate) }}</td>
+                <td>{{ fmtLeaderboardRate(row.winRate, Number(row.gamesPlayed)) }}</td>
+                <td>{{ fmtLeaderboardRate(row.correctRate, Number(row.gamesPlayed), Number(row.rings)) }}</td>
                 <td>{{ recordField(row, "wonCards", 0) }}</td>
-                <td>{{ fmtNum(row.averageRank) }}</td>
+                <td>
+                  {{
+                    Number(row.gamesPlayed) > 0 && typeof row.averageRank === "number"
+                      ? fmtNum(row.averageRank)
+                      : "-"
+                  }}
+                </td>
                 <td v-for="col in computerColumns" :key="`${index}-${col.id}`">
                   {{ defeatedCount(row, col.id) }}
                 </td>
@@ -171,6 +211,7 @@ function isComputerRow(row: LeaderboardEntry): boolean {
                 <th>
                   <button type="button" class="sort-btn" @click="toggleSort('matches', 'roomId')">房间</button>
                 </th>
+                <th>回放</th>
                 <th>
                   <button type="button" class="sort-btn" @click="toggleSort('matches', 'playerCount')">人数</button>
                 </th>
@@ -187,11 +228,21 @@ function isComputerRow(row: LeaderboardEntry): boolean {
             </thead>
             <tbody>
               <tr v-if="!matches.length">
-                <td colspan="6">暂无数据</td>
+                <td colspan="7">暂无数据</td>
               </tr>
               <tr v-for="(row, index) in matches" :key="String(row.gameId ?? row.roomId ?? index)">
                 <td>{{ formatDate(row.at) }}</td>
                 <td>{{ recordField(row, "roomId", "—") }}</td>
+                <td>
+                  <RouterLink
+                    v-if="replayLink(String(row.gameId || ''))"
+                    class="action-link"
+                    :to="replayLink(String(row.gameId || ''))!"
+                  >
+                    观看回放
+                  </RouterLink>
+                  <span v-else class="muted">—</span>
+                </td>
                 <td>{{ recordField(row, "playerCount", "—") }}</td>
                 <td>{{ recordField(row, "playCount", "—") }}</td>
                 <td>{{ recordField(row, "bellCount", "—") }}</td>

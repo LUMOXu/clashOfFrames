@@ -103,11 +103,11 @@ async function leaveRoom(): Promise<void> {
       <section class="panel menu-info-panel">
         <div>
           <h3>卡组提交</h3>
-          <p class="status-line">想提交自己的卡组？请查看指南。</p>
+          <p class="status-line">在线创建牌组、上传牌背与 PMV 帧（待审核）。</p>
         </div>
         <div class="actions">
-          <RouterLink class="menu-link" :to="{ name: 'pmv-index' }">
-            <button type="button">卡组提交指南</button>
+          <RouterLink class="menu-link" :to="{ name: 'card-submit' }">
+            <button type="button" class="primary">提交牌组</button>
           </RouterLink>
         </div>
       </section>

@@ -50,7 +50,8 @@ class RoomMaintenanceServiceTest {
                 computerPlayerService,
                 userStatsService,
                 playerRoomService,
-                playerPresenceService);
+                playerPresenceService,
+                new RoomStartVoteService());
         roomMaintenanceService = new RoomMaintenanceService(roomService, playerPresenceService);
     }
 

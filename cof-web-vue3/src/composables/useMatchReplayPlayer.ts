@@ -22,9 +22,10 @@ function cloneState(state: PublicGame): PublicGame {
 }
 
 function formatReplayClock(ms: number): string {
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.floor((ms % 60_000) / 1_000);
-  const millis = ms % 1_000;
+  const total = Math.max(0, Math.floor(ms));
+  const minutes = Math.floor(total / 60_000);
+  const seconds = Math.floor((total % 60_000) / 1_000);
+  const millis = total % 1_000;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 }
 
@@ -54,7 +55,7 @@ export function useMatchReplayPlayer(timeline: Ref<GameReplayTimeline | null>) {
       displayGame.value = null;
       return;
     }
-    const clamped = Math.max(0, Math.min(ms, maxMs.value));
+    const clamped = Math.max(0, Math.min(Math.floor(ms), maxMs.value));
     replayMs.value = clamped;
     const index = findFrameIndex(list, clamped);
     frameIndex.value = index;
@@ -96,7 +97,7 @@ export function useMatchReplayPlayer(timeline: Ref<GameReplayTimeline | null>) {
     }
     const delta = (now - lastTickAt) * speed.value;
     lastTickAt = now;
-    const nextMs = Math.min(maxMs.value, replayMs.value + delta);
+    const nextMs = Math.min(maxMs.value, Math.floor(replayMs.value + delta));
     const crossed =
       findFrameIndex(frames.value, nextMs) !== findFrameIndex(frames.value, replayMs.value);
     applyFrameAt(nextMs, crossed);

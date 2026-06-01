@@ -30,6 +30,10 @@ export function normalizeComputerPlayers(list: unknown[]): ComputerPlayer[] {
   return list.map(normalizeComputerPlayer).filter((p) => p.id);
 }
 
+export function isComputerClientId(clientId?: string | null): boolean {
+  return Boolean(clientId && clientId.startsWith("computer:"));
+}
+
 export function resolveComputerId(player: {
   clientId?: string;
   computerId?: string;

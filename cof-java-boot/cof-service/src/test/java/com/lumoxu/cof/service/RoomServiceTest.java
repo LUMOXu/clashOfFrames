@@ -48,7 +48,8 @@ class RoomServiceTest {
                 computerPlayerService,
                 userStatsService,
                 playerRoomService,
-                new PlayerPresenceService(redis));
+                new PlayerPresenceService(redis),
+                new RoomStartVoteService());
         when(metaService.listLibraries()).thenReturn(List.of());
     }
 

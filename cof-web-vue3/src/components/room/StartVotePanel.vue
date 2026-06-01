@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { RoomSummary } from "@/types/api";
+import { isComputerClientId } from "@/utils/computerPlayer";
 
 const props = defineProps<{
   room: RoomSummary;
@@ -25,10 +26,19 @@ onUnmounted(() => {
   if (timer) clearInterval(timer);
 });
 
+const humanPlayerIds = computed(() =>
+  (props.room.players ?? []).filter((id) => !isComputerClientId(id)),
+);
+
+const humanVoteCount = computed(() => {
+  const votes = new Set(props.room.startVotes ?? []);
+  return humanPlayerIds.value.filter((id) => votes.has(id)).length;
+});
+
 const voted = computed(() => props.room.startVotes?.includes(props.selfId) ?? false);
 
 const voteRequired = computed(() => {
-  const count = props.room.players?.length ?? 0;
+  const count = humanPlayerIds.value.length;
   const settings = props.room.settings;
   if (settings?.startVoteThresholdMode === "manual" && settings.startVoteThreshold) {
     return Math.max(1, Math.min(count || 1, settings.startVoteThreshold));
@@ -46,7 +56,8 @@ const countdownSec = computed(() => {
   <section class="panel vote-panel">
     <h3>投票开始</h3>
     <p class="status-line">
-      {{ room.startVotes?.length ?? 0 }}/{{ voteRequired }} 票，当前 {{ room.players?.length ?? 0 }} 人。
+      {{ humanVoteCount }}/{{ voteRequired }} 票（仅统计真人），房间 {{ humanPlayerIds.length }} 真人 /
+      {{ (room.players?.length ?? 0) - humanPlayerIds.length }} 人机。
     </p>
     <p v-if="countdownSec !== null" class="status-line">倒计时 {{ countdownSec }} 秒后自动开始。</p>
     <div class="actions">

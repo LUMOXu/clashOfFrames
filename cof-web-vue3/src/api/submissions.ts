@@ -35,6 +35,18 @@ export interface SubmissionCard {
   reviewStatus?: string;
 }
 
+export interface EditableDeckOption {
+  id: number;
+  name?: string;
+  curator?: string;
+  reviewStatus?: string;
+  owned?: boolean;
+}
+
+export async function fetchEditableDecks(): Promise<{ decks: EditableDeckOption[] }> {
+  return unwrap<{ decks: EditableDeckOption[] }>({ method: "GET", url: "/submissions/decks/editable" });
+}
+
 export async function fetchMySubmissions(): Promise<{ decks: SubmissionDeck[] }> {
   return unwrap<{ decks: SubmissionDeck[] }>({ method: "GET", url: "/submissions/mine" });
 }
@@ -53,16 +65,9 @@ export async function createSubmissionDeck(body: {
 export async function uploadSubmissionBack(
   deckId: number,
   file: Blob,
-  crop?: { x: number; y: number; width: number; height: number },
 ): Promise<{ deck: SubmissionDeck }> {
   const form = new FormData();
   form.append("file", file, "back.jpg");
-  if (crop) {
-    form.append("cropX", String(Math.round(crop.x)));
-    form.append("cropY", String(Math.round(crop.y)));
-    form.append("cropWidth", String(Math.round(crop.width)));
-    form.append("cropHeight", String(Math.round(crop.height)));
-  }
   return unwrap<{ deck: SubmissionDeck }>({
     method: "POST",
     url: `/submissions/decks/${deckId}/back`,
@@ -86,18 +91,11 @@ export async function addSubmissionCard(
   pmvId: number,
   shot: string,
   file: Blob,
-  crop?: { x: number; y: number; width: number; height: number },
 ): Promise<{ card: SubmissionCard }> {
   const form = new FormData();
   form.append("pmvId", String(pmvId));
   form.append("shot", shot);
   form.append("file", file, `${shot}.jpg`);
-  if (crop) {
-    form.append("cropX", String(Math.round(crop.x)));
-    form.append("cropY", String(Math.round(crop.y)));
-    form.append("cropWidth", String(Math.round(crop.width)));
-    form.append("cropHeight", String(Math.round(crop.height)));
-  }
   return unwrap<{ card: SubmissionCard }>({
     method: "POST",
     url: `/submissions/decks/${deckId}/cards`,
