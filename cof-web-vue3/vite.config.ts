@@ -24,6 +24,12 @@ export default defineConfig({
       "/cards": {
         target: "http://localhost:9002",
         changeOrigin: true,
+        bypass(req) {
+          const path = (req.url ?? "").split("?")[0] ?? "";
+          if (/^\/cards(\/(loading|info|submit))?$/.test(path)) {
+            return "/index.html";
+          }
+        },
       },
       "/assets": {
         target: "http://localhost:9002",

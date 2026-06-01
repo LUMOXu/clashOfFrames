@@ -159,7 +159,14 @@ server {
         proxy_read_timeout 3600s;
     }
 
+    location ~ ^/cards(/(loading|info|submit))?$ {
+        try_files /index.html =404;
+    }
+
     location /cards/ {
+        try_files $uri @cards_backend;
+    }
+    location @cards_backend {
         proxy_pass http://127.0.0.1:9002;
         proxy_set_header Host $host;
     }
