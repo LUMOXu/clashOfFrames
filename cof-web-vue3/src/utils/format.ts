@@ -19,10 +19,18 @@ export function formatDate(value: unknown): string {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
-export function isGodComputer(computer: { id?: string; name?: string }): boolean {
+export function isGodComputer(computer: {
+  id?: string;
+  name?: string;
+  clientId?: string;
+  username?: string;
+  computerId?: string;
+}): boolean {
+  const id = computer.id ?? computer.clientId ?? computer.computerId;
+  const name = computer.name ?? computer.username;
   return (
-    computer.id === "computer_god" ||
-    String(computer.name || "")
+    id === "computer_god" ||
+    String(name || "")
       .trim()
       .toUpperCase() === "GOD"
   );

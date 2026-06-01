@@ -56,7 +56,11 @@ function applyPlayerPatch(
     return { ...previous, ...patch } as PublicPlayer;
   }
   const clientId = patch.id ?? patch.clientId ?? previous?.clientId ?? "";
-  const next: PublicPlayer = { ...previous, clientId };
+  const next: PublicPlayer = {
+    ...previous,
+    clientId,
+    username: previous?.username ?? "",
+  };
   if (typeof patch.dc === "number") next.drawCount = patch.dc;
   if (typeof patch.xc === "number") {
     next.displayCount = patch.xc;

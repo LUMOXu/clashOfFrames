@@ -108,6 +108,8 @@ public class DeckCatalogImportService {
         deck.enabled = true;
         deck.updatedAt = now;
         if (deck.id == null) {
+            // back_url is NOT NULL; real path is assigned after insert when id is known.
+            deck.backUrl = ResourcePathMigration.backUrl(0);
             deckMapper.insert(deck);
         } else {
             deckMapper.updateById(deck);

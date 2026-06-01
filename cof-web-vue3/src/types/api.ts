@@ -40,6 +40,9 @@ export interface PublicCard {
   backUrl?: string;
   pmvName?: string;
   pmvId?: number;
+  libraryId?: string;
+  playedSeq?: number;
+  shot?: string;
 }
 
 export interface GameLog {
@@ -110,6 +113,10 @@ export interface PublicGame {
   preLastTopCards?: PublicTopEntry[];
   continueVotes?: string[];
   continueReturnAt?: number;
+  continueCountdownStartedAt?: number;
+  eliminatedOrder?: string[];
+  /** Count of cards in the global discard pile (sync key `dc`). */
+  discardedCards?: number;
   resultInfo?: ResultInfo;
 }
 

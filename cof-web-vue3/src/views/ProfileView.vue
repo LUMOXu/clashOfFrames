@@ -30,7 +30,7 @@ const profile = computed(() => lobby.profile);
 const username = computed(() => {
   const fromProfile = profile.value?.username;
   if (typeof fromProfile === "string" && fromProfile) return fromProfile;
-  return auth.username || auth.clientId || "";
+  return auth.player?.username || auth.clientId || "";
 });
 
 const history = computed(() => {

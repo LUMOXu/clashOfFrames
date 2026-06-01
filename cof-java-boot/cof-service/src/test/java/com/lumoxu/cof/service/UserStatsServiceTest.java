@@ -2,6 +2,7 @@ package com.lumoxu.cof.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumoxu.cof.domain.entity.CofUserStats;
+import com.lumoxu.cof.domain.mapper.CofMatchHistoryMapper;
 import com.lumoxu.cof.domain.mapper.CofUserStatsMapper;
 import com.lumoxu.cof.service.support.TestRedisSupport;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,12 +22,16 @@ class UserStatsServiceTest {
     @Mock
     private CofUserStatsMapper statsMapper;
 
+    @Mock
+    private CofMatchHistoryMapper matchHistoryMapper;
+
     private UserStatsService userStatsService;
 
     @BeforeEach
     void setUp() {
         userStatsService = new UserStatsService(
                 statsMapper,
+                matchHistoryMapper,
                 TestRedisSupport.memoryJsonRedis(new ObjectMapper()),
                 new ObjectMapper());
     }

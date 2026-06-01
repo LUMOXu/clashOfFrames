@@ -30,7 +30,10 @@ describe("lobbyStore", () => {
 
   it("loads profile and leaderboard", async () => {
     vi.mocked(fetchProfile).mockResolvedValue({ profile: { wins: 3 } });
-    vi.mocked(fetchLeaderboard).mockResolvedValue([{ username: "a", wins: 1 }]);
+    vi.mocked(fetchLeaderboard).mockResolvedValue({
+      players: [{ username: "a", wins: 1 }],
+      matches: [],
+    });
 
     const store = useLobbyStore();
     await store.loadProfile("c1");
