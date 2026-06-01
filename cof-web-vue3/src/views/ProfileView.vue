@@ -9,6 +9,7 @@ import { fmtNum, fmtPct, formatDate, isGodComputer } from "@/utils/format";
 import { recordField } from "@/utils/record";
 
 interface HistoryRow {
+  gameId?: string;
   at?: number;
   roomId?: string;
   playerCount?: number;
@@ -16,6 +17,7 @@ interface HistoryRow {
   plays?: number;
   rings?: number;
   wonCards?: number;
+  hasReplay?: boolean;
 }
 
 type SortState = { key: keyof HistoryRow; dir: "asc" | "desc" };
@@ -54,6 +56,10 @@ function defeatedCount(computerId: string): number {
   const defeated = profile.value?.defeatedComputers;
   if (!defeated || typeof defeated !== "object") return 0;
   return Number((defeated as Record<string, unknown>)[computerId]) || 0;
+}
+
+function canReplay(row: HistoryRow): boolean {
+  return Boolean(row.gameId) && row.hasReplay !== false;
 }
 
 function toggleHistorySort(key: keyof HistoryRow): void {
@@ -135,13 +141,14 @@ onMounted(async () => {
                 <th>
                   <button type="button" class="sort-btn" @click="toggleHistorySort('wonCards')">赢牌</button>
                 </th>
+                <th>回放</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="!history.length">
-                <td colspan="7">暂无历史记录</td>
+                <td colspan="8">暂无历史记录</td>
               </tr>
-              <tr v-for="(row, index) in history" :key="`${row.at}-${row.roomId}-${index}`">
+              <tr v-for="(row, index) in history" :key="`${row.gameId ?? row.at}-${row.roomId}-${index}`">
                 <td>{{ formatDate(row.at) }}</td>
                 <td>{{ row.roomId ?? "—" }}</td>
                 <td>{{ row.playerCount ?? "—" }}</td>
@@ -149,6 +156,16 @@ onMounted(async () => {
                 <td>{{ row.plays ?? "—" }}</td>
                 <td>{{ row.rings ?? "—" }}</td>
                 <td>{{ row.wonCards ?? "—" }}</td>
+                <td>
+                  <RouterLink
+                    v-if="canReplay(row)"
+                    class="action-link"
+                    :to="{ name: 'match-replay', params: { gameId: row.gameId } }"
+                  >
+                    观看回放
+                  </RouterLink>
+                  <span v-else class="muted">—</span>
+                </td>
               </tr>
             </tbody>
           </table>

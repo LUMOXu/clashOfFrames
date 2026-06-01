@@ -13,4 +13,6 @@ public class CofMatchHistory {
     public String roomId;
     public Long playedAt;
     public String summary;
+    /** Full match log as plain text (relative timestamps from match start). */
+    public String logText;
 }

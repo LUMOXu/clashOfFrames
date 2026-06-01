@@ -9,8 +9,11 @@ import com.lumoxu.cof.domain.mapper.CofMatchHistoryMapper;
 import com.lumoxu.cof.domain.mapper.CofUserStatsMapper;
 import com.lumoxu.cof.engine.Game;
 import com.lumoxu.cof.engine.GameCore;
+import com.lumoxu.cof.engine.GameLogTextFormatter;
 import com.lumoxu.cof.engine.GameSummary;
 import com.lumoxu.cof.engine.PlayerStats;
+import com.lumoxu.cof.common.api.CofException;
+import com.lumoxu.cof.common.api.ErrorCode;
 import com.lumoxu.cof.service.redis.JsonRedisOps;
 import com.lumoxu.cof.service.redis.RedisKeys;
 import org.springframework.stereotype.Service;
@@ -100,6 +103,7 @@ public class UserStatsService {
             matchPayload.put("winnerId", summary.winnerId);
             matchPayload.put("averageRoundLength", summary.averageRoundLength);
             match.summary = objectMapper.writeValueAsString(matchPayload);
+            match.logText = GameLogTextFormatter.format(game);
             matchHistoryMapper.insert(match);
 
             for (GameSummary.SummaryPlayer entry : summary.players) {
@@ -155,6 +159,62 @@ public class UserStatsService {
         profile.put("godRewardGameId", stats.godRewardGameId);
         profile.put("godDefeatedAt", stats.godDefeatedAt);
         return profile;
+    }
+
+    /**
+     * Returns persisted match log text for replay. Caller must be a participant in the game.
+     */
+    public Map<String, Object> matchReplayFor(String statsId, String gameId) {
+        if (gameId == null || gameId.isBlank()) {
+            throw new CofException(ErrorCode.BAD_REQUEST, "缺少对局 ID。");
+        }
+        if (!userParticipatedInGame(statsId, gameId)) {
+            throw new CofException(ErrorCode.FORBIDDEN, "只能查看自己参与过的对局回放。");
+        }
+        CofMatchHistory row = matchHistoryMapper.selectOne(
+                new QueryWrapper<CofMatchHistory>().eq("game_id", gameId).last("LIMIT 1"));
+        if (row == null || row.logText == null || row.logText.isBlank()) {
+            throw new CofException(ErrorCode.NOT_FOUND, "该对局暂无回放日志。");
+        }
+        Map<String, Object> replay = new HashMap<>();
+        replay.put("gameId", row.gameId);
+        replay.put("roomId", row.roomId);
+        replay.put("playedAt", row.playedAt);
+        replay.put("logText", row.logText);
+        if (row.summary != null && !row.summary.isBlank()) {
+            try {
+                Map<String, Object> summary = objectMapper.readValue(
+                        row.summary,
+                        new TypeReference<Map<String, Object>>() {
+                        });
+                replay.put("summary", summary);
+            } catch (Exception ignored) {
+                // optional metadata
+            }
+        }
+        return replay;
+    }
+
+    private boolean userParticipatedInGame(String statsId, String gameId) {
+        CofUserStats stats = statsMapper.selectById(statsId);
+        if (stats == null || stats.history == null || stats.history.isBlank()) {
+            return false;
+        }
+        try {
+            List<Map<String, Object>> history = objectMapper.readValue(
+                    stats.history,
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            for (Map<String, Object> entry : history) {
+                Object id = entry.get("gameId");
+                if (gameId.equals(id)) {
+                    return true;
+                }
+            }
+        } catch (Exception ex) {
+            return false;
+        }
+        return false;
     }
 
     @SuppressWarnings("unchecked")
@@ -289,6 +349,7 @@ public class UserStatsService {
             row.put("correctRings", ps.correctRings);
             row.put("wrongRings", ps.wrongRings);
             row.put("wonCards", ps.wonCards);
+            row.put("hasReplay", true);
             history.add(0, row);
             if (history.size() > 100) {
                 history = new ArrayList<>(history.subList(0, 100));

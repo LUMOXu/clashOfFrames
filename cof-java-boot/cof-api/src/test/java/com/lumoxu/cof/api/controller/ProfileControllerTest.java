@@ -32,4 +32,13 @@ class ProfileControllerTest extends ControllerTestSupport {
                         .header("Authorization", bearer()))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void replayOk() throws Exception {
+        when(userStatsService.matchReplayFor(anyString(), anyString()))
+                .thenReturn(Map.of("gameId", "game-1", "logText", "00:00:000 | start"));
+        mockMvc.perform(get("/api/v1/profile/00000000-0000-0000-0000-000000000001/games/game-1/replay")
+                        .header("Authorization", bearer()))
+                .andExpect(status().isOk());
+    }
 }

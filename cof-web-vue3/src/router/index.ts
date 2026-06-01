@@ -71,6 +71,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    path: "/profile/replay/:gameId",
+    name: "match-replay",
+    component: () => import("@/views/MatchReplayView.vue"),
+    meta: { requiresAuth: true },
+  },
+  {
     path: "/leaderboard",
     name: "leaderboard",
     component: () => import("@/views/LeaderboardView.vue"),

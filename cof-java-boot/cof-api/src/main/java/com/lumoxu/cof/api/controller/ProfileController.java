@@ -32,4 +32,15 @@ public class ProfileController {
         }
         return ApiResponse.ok(Map.of("profile", userStatsService.profileFor(clientId)));
     }
+
+    @GetMapping("/{clientId}/games/{gameId}/replay")
+    public ApiResponse<Map<String, Object>> replay(
+            @PathVariable("clientId") String clientId,
+            @PathVariable("gameId") String gameId) {
+        String self = AuthContext.get().clientId.toString();
+        if (!self.equals(clientId)) {
+            throw new CofException(ErrorCode.FORBIDDEN, "只能查看自己的对局回放。");
+        }
+        return ApiResponse.ok(Map.of("replay", userStatsService.matchReplayFor(clientId, gameId)));
+    }
 }

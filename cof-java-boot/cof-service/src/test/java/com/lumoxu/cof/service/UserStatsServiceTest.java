@@ -20,9 +20,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -67,7 +68,10 @@ class UserStatsServiceTest {
 
         assertTrue(userStatsService.recordFinishedGame(game));
         verify(statsMapper).insert(any(CofUserStats.class));
-        verify(matchHistoryMapper).insert(any(CofMatchHistory.class));
+        verify(matchHistoryMapper).insert(argThat((CofMatchHistory row) -> {
+            assertNotNull(row.logText);
+            return row.gameId != null && !row.gameId.isBlank();
+        }));
         assertTrue(Boolean.TRUE.equals(game.statsSaved));
     }
 
