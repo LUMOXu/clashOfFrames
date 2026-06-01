@@ -106,6 +106,9 @@ public class GameTickOrchestrator {
             broadcastOutcome = ComputerTickOutcome.of(true, true, false);
         }
 
+        // 人机状态机（等待/分析/延迟）也须落库，否则每 tick 从 Redis 读到旧状态会卡死
+        gameRuntimeService.save(game);
+
         if (!changed) {
             return;
         }
@@ -113,7 +116,6 @@ public class GameTickOrchestrator {
         if ("finished".equals(game.status)) {
             userStatsService.recordFinishedGame(game);
         }
-        gameRuntimeService.save(game);
         PublicGame publicGame = gameRuntimeService.toPublicGame(game);
         ComputerTickOutcome outcome = broadcastOutcome;
         outcome.justFinished = !"finished".equals(statusBefore) && "finished".equals(game.status);
