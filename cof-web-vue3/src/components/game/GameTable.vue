@@ -13,6 +13,8 @@ const props = defineProps<{
   canPlay: boolean;
   canRing: boolean;
   lastAnimation?: PublicAnimation | null;
+  /** 回放模式：外部时钟（毫秒时间戳） */
+  clockNow?: number;
 }>();
 
 const emit = defineEmits<{
@@ -21,7 +23,8 @@ const emit = defineEmits<{
 }>();
 
 const animationRef = toRef(props, "lastAnimation");
-const now = useAnimationClock(animationRef);
+const animClock = useAnimationClock(animationRef);
+const pileNow = computed(() => props.clockNow ?? animClock.value);
 
 const layouts = computed(() =>
   playerLayouts(
@@ -48,7 +51,7 @@ const cardBackPlaceholderUrl = "/cards/placeholder-back.png";
 function drawCardsFor(playerId: string) {
   const player = playerMap.value.get(playerId);
   if (!player) return [];
-  return visualDrawPile(player, props.lastAnimation, now.value);
+  return visualDrawPile(player, props.lastAnimation, pileNow.value);
 }
 
 function displayCardsFor(playerId: string) {

@@ -13,7 +13,8 @@ export interface MatchReplayData {
     gameId: string;
     roomId?: string;
     playedAt?: number;
-    logText: string;
+    logText?: string;
+    replayJson?: string;
     summary?: Record<string, unknown>;
   };
 }

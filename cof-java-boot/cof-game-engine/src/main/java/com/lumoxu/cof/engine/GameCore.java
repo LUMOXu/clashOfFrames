@@ -490,6 +490,7 @@ public final class GameCore {
         setTurnTiming(game, now, 0);
         ensureTurnPlayerCanPlay(game, now);
         addLog(game, "所有可用玩家加载完成，对局开始。");
+        GameReplayRecorder.record(game, now);
     }
 
     public static ActionResult performPlayCard(Game game, String clientId) {
@@ -534,6 +535,7 @@ public final class GameCore {
         }
         setTurnTiming(game, now, 1000);
         checkGameOver(game, now);
+        GameReplayRecorder.record(game, now);
         return ActionResult.okGame(game);
     }
 
@@ -672,6 +674,7 @@ public final class GameCore {
         }
 
         checkGameOver(game, now);
+        GameReplayRecorder.record(game, now);
         return ActionResult.okGame(game);
     }
 
@@ -693,6 +696,7 @@ public final class GameCore {
         if (current != null && clientId.equals(current.clientId)) {
             game.turnIndex = nextTurnIndex(game, game.turnIndex);
         }
+        GameReplayRecorder.record(game, System.currentTimeMillis());
     }
 
     public static void eliminateEmptyDuelPlayers(Game game) {
@@ -735,6 +739,7 @@ public final class GameCore {
             if (winner != null) {
                 addLog(game, "祝贺 " + winner.username + " 胜利。");
             }
+            GameReplayRecorder.record(game, now);
             return true;
         }
         ensureTurnPlayerCanPlay(game, now);

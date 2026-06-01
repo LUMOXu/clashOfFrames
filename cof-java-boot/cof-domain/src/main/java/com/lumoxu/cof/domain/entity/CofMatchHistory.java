@@ -15,4 +15,6 @@ public class CofMatchHistory {
     public String summary;
     /** Full match log as plain text (relative timestamps from match start). */
     public String logText;
+    /** JSON {@link com.lumoxu.cof.engine.GameReplayTimeline} for visual replay. */
+    public String replayJson;
 }

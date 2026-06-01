@@ -9,10 +9,13 @@ const props = defineProps<{
   animation?: PublicAnimation | null;
   players: PublicPlayer[];
   selfId: string;
+  /** 回放：外部时钟（毫秒） */
+  clockNow?: number;
 }>();
 
 const animationRef = toRef(props, "animation");
-const now = useAnimationClock(animationRef);
+const animClock = useAnimationClock(animationRef);
+const now = computed(() => props.clockNow ?? animClock.value);
 
 const active = computed(() => {
   const animation = props.animation;

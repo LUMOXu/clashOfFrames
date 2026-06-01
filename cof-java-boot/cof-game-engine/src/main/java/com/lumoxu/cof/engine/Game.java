@@ -38,4 +38,6 @@ public class Game {
     public Long finishedAt;
     /** Set after {@link com.lumoxu.cof.engine.GameCore#summarizeGameForStats} is persisted. */
     public Boolean statsSaved;
+    /** Visual replay snapshots (not persisted in Redis long-term). */
+    public java.util.List<GameReplayFrame> replayFrames;
 }

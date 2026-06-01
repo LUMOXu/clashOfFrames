@@ -10,6 +10,8 @@ import com.lumoxu.cof.domain.mapper.CofUserStatsMapper;
 import com.lumoxu.cof.engine.Game;
 import com.lumoxu.cof.engine.GameCore;
 import com.lumoxu.cof.engine.GameLogTextFormatter;
+import com.lumoxu.cof.engine.GameReplayRecorder;
+import com.lumoxu.cof.engine.GameReplayTimeline;
 import com.lumoxu.cof.engine.GameSummary;
 import com.lumoxu.cof.engine.PlayerStats;
 import com.lumoxu.cof.common.api.CofException;
@@ -104,6 +106,10 @@ public class UserStatsService {
             matchPayload.put("averageRoundLength", summary.averageRoundLength);
             match.summary = objectMapper.writeValueAsString(matchPayload);
             match.logText = GameLogTextFormatter.format(game);
+            GameReplayTimeline timeline = GameReplayRecorder.buildTimeline(game);
+            if (timeline.frames != null && !timeline.frames.isEmpty()) {
+                match.replayJson = objectMapper.writeValueAsString(timeline);
+            }
             matchHistoryMapper.insert(match);
 
             for (GameSummary.SummaryPlayer entry : summary.players) {
@@ -173,14 +179,24 @@ public class UserStatsService {
         }
         CofMatchHistory row = matchHistoryMapper.selectOne(
                 new QueryWrapper<CofMatchHistory>().eq("game_id", gameId).last("LIMIT 1"));
-        if (row == null || row.logText == null || row.logText.isBlank()) {
-            throw new CofException(ErrorCode.NOT_FOUND, "该对局暂无回放日志。");
+        if (row == null) {
+            throw new CofException(ErrorCode.NOT_FOUND, "未找到该对局记录。");
+        }
+        boolean hasLog = row.logText != null && !row.logText.isBlank();
+        boolean hasVisual = row.replayJson != null && !row.replayJson.isBlank();
+        if (!hasLog && !hasVisual) {
+            throw new CofException(ErrorCode.NOT_FOUND, "该对局暂无回放数据。");
         }
         Map<String, Object> replay = new HashMap<>();
         replay.put("gameId", row.gameId);
         replay.put("roomId", row.roomId);
         replay.put("playedAt", row.playedAt);
-        replay.put("logText", row.logText);
+        if (hasLog) {
+            replay.put("logText", row.logText);
+        }
+        if (hasVisual) {
+            replay.put("replayJson", row.replayJson);
+        }
         if (row.summary != null && !row.summary.isBlank()) {
             try {
                 Map<String, Object> summary = objectMapper.readValue(
