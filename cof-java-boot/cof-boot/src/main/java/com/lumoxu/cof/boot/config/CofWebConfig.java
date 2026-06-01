@@ -24,7 +24,7 @@ public class CofWebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOrigins("http://localhost:9001")
+                .allowedOrigins("http://localhost:9001", "http://127.0.0.1:9001")
                 .allowedMethods("*")
                 .allowedHeaders("*")
                 .allowCredentials(true);

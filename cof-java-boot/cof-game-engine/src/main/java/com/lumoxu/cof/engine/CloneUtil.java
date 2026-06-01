@@ -283,6 +283,7 @@ public final class CloneUtil {
         copy.createdAt = source.createdAt;
         copy.startedAt = source.startedAt;
         copy.finishedAt = source.finishedAt;
+        copy.statsSaved = source.statsSaved;
         return copy;
     }
 

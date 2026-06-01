@@ -22,6 +22,7 @@ public class GameTickOrchestrator {
     private final RoomService roomService;
     private final ComputerPlayerAdvanceService computerAdvanceService;
     private final RoomMaintenanceService roomMaintenanceService;
+    private final UserStatsService userStatsService;
     private final Optional<GameTickBroadcaster> broadcaster;
 
     public GameTickOrchestrator(
@@ -30,12 +31,14 @@ public class GameTickOrchestrator {
             RoomService roomService,
             ComputerPlayerAdvanceService computerAdvanceService,
             RoomMaintenanceService roomMaintenanceService,
+            UserStatsService userStatsService,
             Optional<GameTickBroadcaster> broadcaster) {
         this.redis = redis;
         this.gameRuntimeService = gameRuntimeService;
         this.roomService = roomService;
         this.computerAdvanceService = computerAdvanceService;
         this.roomMaintenanceService = roomMaintenanceService;
+        this.userStatsService = userStatsService;
         this.broadcaster = broadcaster;
     }
 
@@ -62,6 +65,9 @@ public class GameTickOrchestrator {
         Game game = bundleOpt.get().game;
 
         if ("finished".equals(game.status)) {
+            if (userStatsService.recordFinishedGame(game)) {
+                gameRuntimeService.save(game);
+            }
             if (!"finished".equals(room.status)) {
                 room.status = "finished";
                 room.lastWinnerId = game.winnerId;
@@ -93,6 +99,7 @@ public class GameTickOrchestrator {
             return;
         }
 
+        userStatsService.recordFinishedGame(game);
         gameRuntimeService.save(game);
         PublicGame publicGame = gameRuntimeService.toPublicGame(game);
         ComputerTickOutcome outcome = broadcastOutcome;

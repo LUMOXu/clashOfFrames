@@ -19,9 +19,13 @@ export async function fetchPmvIndex(): Promise<unknown[]> {
 }
 
 export async function fetchCardViewer(libraryIds: string[]): Promise<import("@/types/api").CardViewerPayload> {
+  const ids = libraryIds.map((id) => id.trim()).filter(Boolean);
   return unwrap({
     method: "GET",
     url: "/meta/card-viewer",
-    params: { libraryIds: libraryIds.join(",") },
+    params: { libraryIds: ids.join(",") },
+    paramsSerializer: {
+      indexes: null,
+    },
   });
 }

@@ -36,4 +36,6 @@ public class Game {
     public long createdAt;
     public Long startedAt;
     public Long finishedAt;
+    /** Set after {@link com.lumoxu.cof.engine.GameCore#summarizeGameForStats} is persisted. */
+    public Boolean statsSaved;
 }

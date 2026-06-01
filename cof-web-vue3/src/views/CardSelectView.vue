@@ -14,8 +14,10 @@ const selected = ref<string[]>([]);
 onMounted(async () => {
   await lobby.loadMeta();
   const libraries = lobby.cardLibraries as CardLibraryMeta[];
-  if (!selected.value.length && libraries.length) {
-    selected.value = [libraries[0].id];
+  if (lobby.selectedLibraryIds.length) {
+    selected.value = [...lobby.selectedLibraryIds];
+  } else if (!selected.value.length && libraries.length) {
+    selected.value = [String(libraries[0].id)];
   }
 });
 

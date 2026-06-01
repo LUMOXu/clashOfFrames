@@ -7,6 +7,10 @@ import com.lumoxu.cof.domain.entity.CofMatchHistory;
 import com.lumoxu.cof.domain.entity.CofUserStats;
 import com.lumoxu.cof.domain.mapper.CofMatchHistoryMapper;
 import com.lumoxu.cof.domain.mapper.CofUserStatsMapper;
+import com.lumoxu.cof.engine.Game;
+import com.lumoxu.cof.engine.GameCore;
+import com.lumoxu.cof.engine.GameSummary;
+import com.lumoxu.cof.engine.PlayerStats;
 import com.lumoxu.cof.service.redis.JsonRedisOps;
 import com.lumoxu.cof.service.redis.RedisKeys;
 import org.springframework.stereotype.Service;
@@ -20,6 +24,8 @@ import java.util.Map;
 
 @Service
 public class UserStatsService {
+
+    private static final String GOD_COMPUTER_ID = "computer_god";
 
     private final CofUserStatsMapper statsMapper;
     private final CofMatchHistoryMapper matchHistoryMapper;
@@ -64,6 +70,48 @@ public class UserStatsService {
         }
         redis.delete(RedisKeys.CACHE_LEADERBOARD);
         return stats;
+    }
+
+    /**
+     * Persists match history and player stats when a game ends (mirrors old server.js saveGameStats).
+     *
+     * @return true if stats were written (caller should save the game to Redis)
+     */
+    public boolean recordFinishedGame(Game game) {
+        if (game == null || !"finished".equals(game.status) || Boolean.TRUE.equals(game.statsSaved)) {
+            return false;
+        }
+        game.statsSaved = true;
+        GameSummary summary = GameCore.summarizeGameForStats(game);
+        try {
+            CofMatchHistory match = new CofMatchHistory();
+            match.gameId = summary.gameId;
+            match.roomId = summary.roomId;
+            match.playedAt = summary.at;
+            Map<String, Object> matchPayload = new HashMap<>();
+            matchPayload.put("gameId", summary.gameId);
+            matchPayload.put("roomId", summary.roomId);
+            matchPayload.put("at", summary.at);
+            matchPayload.put("playerCount", summary.playerCount);
+            matchPayload.put("playCount", summary.playCount);
+            matchPayload.put("bellCount", summary.bellCount);
+            matchPayload.put("successBellCount", summary.successBellCount);
+            matchPayload.put("failBellCount", summary.failBellCount);
+            matchPayload.put("winnerId", summary.winnerId);
+            matchPayload.put("averageRoundLength", summary.averageRoundLength);
+            match.summary = objectMapper.writeValueAsString(matchPayload);
+            matchHistoryMapper.insert(match);
+
+            for (GameSummary.SummaryPlayer entry : summary.players) {
+                applySummaryToPlayer(entry, summary);
+            }
+            updateComputerDefeatStats(summary);
+            redis.delete(RedisKeys.CACHE_LEADERBOARD);
+            return true;
+        } catch (Exception ex) {
+            game.statsSaved = false;
+            throw new IllegalStateException("Failed to persist game stats", ex);
+        }
     }
 
     public Map<String, Object> profileFor(String statsId) {
@@ -197,5 +245,93 @@ public class UserStatsService {
             return playCount instanceof Number number ? number.longValue() : 0L;
         }).reversed());
         return matches;
+    }
+
+    private void applySummaryToPlayer(GameSummary.SummaryPlayer entry, GameSummary summary) {
+        String statsId = entry.statsId != null && !entry.statsId.isBlank()
+                ? entry.statsId
+                : entry.clientId;
+        CofUserStats stats = ensureStats(statsId, entry.username, entry.isComputer, entry.computerId);
+        stats.username = entry.username;
+        stats.isComputer = entry.isComputer;
+        stats.computerId = entry.computerId;
+        stats.gamesPlayed = (stats.gamesPlayed != null ? stats.gamesPlayed : 0) + 1;
+        if (entry.clientId != null && entry.clientId.equals(summary.winnerId)) {
+            stats.wins = (stats.wins != null ? stats.wins : 0) + 1;
+        }
+        PlayerStats ps = entry.stats != null ? entry.stats : new PlayerStats();
+        stats.rings = (stats.rings != null ? stats.rings : 0) + ps.rings;
+        stats.correctRings = (stats.correctRings != null ? stats.correctRings : 0) + ps.correctRings;
+        stats.wrongRings = (stats.wrongRings != null ? stats.wrongRings : 0) + ps.wrongRings;
+        stats.wonCards = (stats.wonCards != null ? stats.wonCards : 0) + ps.wonCards;
+        int rank = entry.rank != null ? entry.rank : summary.playerCount;
+        stats.totalRank = (stats.totalRank != null ? stats.totalRank : 0) + rank;
+        appendHistoryEntry(stats, entry, summary);
+        stats.updatedAt = System.currentTimeMillis();
+        statsMapper.updateById(stats);
+    }
+
+    private void appendHistoryEntry(CofUserStats stats, GameSummary.SummaryPlayer entry, GameSummary summary) {
+        try {
+            List<Map<String, Object>> history = objectMapper.readValue(
+                    stats.history != null ? stats.history : "[]",
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            Map<String, Object> row = new HashMap<>();
+            row.put("gameId", summary.gameId);
+            row.put("roomId", summary.roomId);
+            row.put("at", summary.at);
+            row.put("playerCount", summary.playerCount);
+            row.put("rank", entry.rank);
+            PlayerStats ps = entry.stats != null ? entry.stats : new PlayerStats();
+            row.put("plays", ps.plays);
+            row.put("rings", ps.rings);
+            row.put("correctRings", ps.correctRings);
+            row.put("wrongRings", ps.wrongRings);
+            row.put("wonCards", ps.wonCards);
+            history.add(0, row);
+            if (history.size() > 100) {
+                history = new ArrayList<>(history.subList(0, 100));
+            }
+            stats.history = objectMapper.writeValueAsString(history);
+        } catch (Exception ex) {
+            stats.history = "[]";
+        }
+    }
+
+    private void updateComputerDefeatStats(GameSummary summary) {
+        List<GameSummary.SummaryPlayer> computers = summary.players.stream()
+                .filter(p -> p.isComputer && p.computerId != null && !p.computerId.isBlank() && p.rank != null)
+                .toList();
+        List<GameSummary.SummaryPlayer> humans = summary.players.stream()
+                .filter(p -> !p.isComputer && p.rank != null)
+                .toList();
+        for (GameSummary.SummaryPlayer human : humans) {
+            String statsId = human.statsId != null && !human.statsId.isBlank()
+                    ? human.statsId
+                    : human.clientId;
+            CofUserStats stats = ensureStats(statsId, human.username, false, null);
+            Map<String, Object> defeated = parseDefeatedComputers(stats.defeatedComputers);
+            for (GameSummary.SummaryPlayer computer : computers) {
+                if (human.rank < computer.rank) {
+                    if (GOD_COMPUTER_ID.equals(computer.computerId) && human.finalDrawCount < 3) {
+                        continue;
+                    }
+                    int previous = ((Number) defeated.getOrDefault(computer.computerId, 0)).intValue();
+                    defeated.put(computer.computerId, previous + 1);
+                    if (GOD_COMPUTER_ID.equals(computer.computerId) && previous == 0) {
+                        stats.godDefeatedAt = summary.at;
+                        stats.godRewardGameId = summary.gameId;
+                    }
+                }
+            }
+            try {
+                stats.defeatedComputers = objectMapper.writeValueAsString(defeated);
+            } catch (Exception ex) {
+                stats.defeatedComputers = "{}";
+            }
+            stats.updatedAt = System.currentTimeMillis();
+            statsMapper.updateById(stats);
+        }
     }
 }

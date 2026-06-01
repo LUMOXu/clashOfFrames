@@ -54,7 +54,7 @@ function pmvTitle(pmv: CardViewerPmv): string {
 
 <template>
   <AppShell>
-    <PagePanel title="卡牌信息">
+    <PagePanel title="牌组图鉴">
       <div v-if="!libraries.length" class="muted">没有可展示的卡组。</div>
       <template v-else-if="activeLibrary">
         <div class="tabs">
