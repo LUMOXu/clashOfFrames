@@ -55,4 +55,5 @@ Open http://localhost:9001
 
 - `spring-boot:run` from `cof-boot` alone fails without `-am`; prefer the packaged JAR or `mvn -pl cof-boot -am spring-boot:run`.
 - Deck import on first insert requires `back_url` NOT NULL — fixed in `DeckCatalogImportService` (placeholder then update after id).
+- **User-submitted decks**: public catalog (`GET /meta/card-libraries`) and match pools only include rows with `cof_deck.enabled = TRUE` and `review_status = 'approved'` (plus approved PMVs/cards). After DB review via `deploy/review_submissions.py`, call `POST /api/v1/admin/catalog/reconcile` (or let the script do it) so Redis `cof:cache:card-libraries` is busted. Prefer `ad <deck_id>` to approve a whole deck; partial `ap`/`ac` auto-enables the deck when all PMVs/cards are approved.
 - `feature-dyu` may have failing unit tests and incomplete game logic (see latest commit message).

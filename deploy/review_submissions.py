@@ -29,10 +29,93 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://postgres:123123@127.0.0.1:5432/cof_db",
 )
+COF_API_BASE = os.environ.get("COF_API_BASE", "http://127.0.0.1:9002/api/v1").rstrip("/")
 
 
 def connect():
     return psycopg2.connect(DATABASE_URL)
+
+
+def refresh_app_catalog() -> None:
+    """Tell cof-boot to reconcile publication flags and bust Redis catalog caches."""
+    import urllib.error
+    import urllib.request
+
+    url = f"{COF_API_BASE}/admin/catalog/reconcile"
+    req = urllib.request.Request(url, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            if resp.status >= 400:
+                print(f"Warn: catalog reconcile HTTP {resp.status}", file=sys.stderr)
+            else:
+                print("Catalog caches reconciled (cof-boot).")
+    except urllib.error.URLError as ex:
+        print(
+            f"Warn: could not call {url} ({ex}). "
+            "Restart cof-boot or run: curl -X POST "
+            f"{COF_API_BASE}/admin/catalog/reconcile",
+            file=sys.stderr,
+        )
+
+
+def try_publish_deck(conn, deck_id: int) -> None:
+    """Enable deck when all PMVs/cards are approved (matches DeckCatalogReviewService)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT review_status, enabled FROM cof_deck WHERE id = %s",
+            (deck_id,),
+        )
+        row = cur.fetchone()
+        if not row or row[0] == "rejected":
+            return
+        if row[0] == "approved":
+            if row[1]:
+                return
+            cur.execute(
+                """
+                UPDATE cof_deck
+                SET enabled = TRUE,
+                    updated_at = EXTRACT(EPOCH FROM NOW()) * 1000
+                WHERE id = %s
+                """,
+                (deck_id,),
+            )
+            conn.commit()
+            return
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM cof_deck_pmv
+            WHERE deck_id = %s AND review_status <> 'approved'
+            """,
+            (deck_id,),
+        )
+        if cur.fetchone()[0] > 0:
+            return
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM cof_card
+            WHERE deck_id = %s AND review_status <> 'approved'
+            """,
+            (deck_id,),
+        )
+        if cur.fetchone()[0] > 0:
+            return
+        cur.execute("SELECT COUNT(*) FROM cof_deck_pmv WHERE deck_id = %s", (deck_id,))
+        if cur.fetchone()[0] == 0:
+            return
+        cur.execute("SELECT COUNT(*) FROM cof_card WHERE deck_id = %s", (deck_id,))
+        if cur.fetchone()[0] == 0:
+            return
+        cur.execute(
+            """
+            UPDATE cof_deck
+            SET review_status = 'approved', enabled = TRUE,
+                updated_at = EXTRACT(EPOCH FROM NOW()) * 1000
+            WHERE id = %s
+            """,
+            (deck_id,),
+        )
+    conn.commit()
 
 
 def fetch_pending(conn) -> dict[str, list[dict[str, Any]]]:
@@ -89,6 +172,7 @@ def approve_deck(conn, deck_id: int) -> None:
         )
     conn.commit()
     print(f"Approved deck {deck_id} (+ pending PMVs/cards in deck)")
+    refresh_app_catalog()
 
 
 def reject_deck(conn, deck_id: int) -> None:
@@ -99,34 +183,59 @@ def reject_deck(conn, deck_id: int) -> None:
         )
     conn.commit()
     print(f"Rejected deck {deck_id}")
+    refresh_app_catalog()
 
 
 def approve_pmv(conn, pmv_row_id: int) -> None:
+    deck_id = None
     with conn.cursor() as cur:
-        cur.execute("UPDATE cof_deck_pmv SET review_status = 'approved' WHERE id = %s", (pmv_row_id,))
+        cur.execute("SELECT deck_id FROM cof_deck_pmv WHERE id = %s", (pmv_row_id,))
+        row = cur.fetchone()
+        if row:
+            deck_id = row[0]
+        cur.execute(
+            "UPDATE cof_deck_pmv SET review_status = 'approved' WHERE id = %s",
+            (pmv_row_id,),
+        )
     conn.commit()
-    print(f"Approved PMV row {pmv_row_id}")
+    if deck_id is not None:
+        try_publish_deck(conn, deck_id)
+    print(f"Approved PMV row id={pmv_row_id}")
+    refresh_app_catalog()
 
 
 def reject_pmv(conn, pmv_row_id: int) -> None:
     with conn.cursor() as cur:
         cur.execute("UPDATE cof_deck_pmv SET review_status = 'rejected' WHERE id = %s", (pmv_row_id,))
     conn.commit()
-    print(f"Rejected PMV row {pmv_row_id}")
+    print(f"Rejected PMV row id={pmv_row_id}")
+    refresh_app_catalog()
 
 
 def approve_card(conn, card_row_id: int) -> None:
+    deck_id = None
     with conn.cursor() as cur:
-        cur.execute("UPDATE cof_card SET review_status = 'approved' WHERE id = %s", (card_row_id,))
+        cur.execute("SELECT deck_id FROM cof_card WHERE id = %s", (card_row_id,))
+        row = cur.fetchone()
+        if row:
+            deck_id = row[0]
+        cur.execute(
+            "UPDATE cof_card SET review_status = 'approved' WHERE id = %s",
+            (card_row_id,),
+        )
     conn.commit()
-    print(f"Approved card row {card_row_id}")
+    if deck_id is not None:
+        try_publish_deck(conn, deck_id)
+    print(f"Approved card row id={card_row_id}")
+    refresh_app_catalog()
 
 
 def reject_card(conn, card_row_id: int) -> None:
     with conn.cursor() as cur:
         cur.execute("UPDATE cof_card SET review_status = 'rejected' WHERE id = %s", (card_row_id,))
     conn.commit()
-    print(f"Rejected card row {card_row_id}")
+    print(f"Rejected card row id={card_row_id}")
+    refresh_app_catalog()
 
 
 def prompt_action() -> None:

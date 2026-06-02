@@ -161,7 +161,16 @@ public class DeckCatalogService {
 
     public void bustCaches() {
         redis.delete(RedisKeys.CACHE_CARD_LIBRARIES);
-        deckMapper.listEnabledDecks().forEach(d -> redis.delete(RedisKeys.deckBundle(String.valueOf(d.id))));
+        redis.deleteByPrefix(RedisKeys.DECK_BUNDLE_PREFIX);
+    }
+
+    public void bustCachesForDeck(Long deckId) {
+        if (deckId == null) {
+            return;
+        }
+        redis.delete(RedisKeys.CACHE_CARD_LIBRARIES);
+        redis.delete(RedisKeys.deckBundle(String.valueOf(deckId)));
+        redis.deleteByPrefix(RedisKeys.deckBundle(deckId + ":viewer:"));
     }
 
     public List<Card> expandedCards(String gameId, GameSettings settings) {
@@ -183,11 +192,37 @@ public class DeckCatalogService {
         return expandFromLibraries(catalog.libraries, settings);
     }
 
+    public Map<String, Object> findApprovedPmvByMatchId(int matchId) {
+        for (CofDeckPmv pmv : deckPmvMapper.selectList(null)) {
+            if (pmv.pmvId == null || pmv.pmvId != matchId) {
+                continue;
+            }
+            CofDeck deck = pmv.deckId != null ? deckMapper.selectById(pmv.deckId) : null;
+            if (deck == null || !isDeckPlayable(deck)) {
+                continue;
+            }
+            if (!ReviewStatus.isApproved(pmv.reviewStatus)) {
+                continue;
+            }
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("deckId", pmv.deckId);
+            entry.put("pmvId", pmv.pmvId);
+            entry.put("name", pmv.name);
+            entry.put("author", pmv.author);
+            entry.put("description", pmv.description);
+            entry.put("link", pmv.link);
+            entry.put("libraryName", deck.name);
+            entry.put("submitterClientId", pmv.submitterClientId);
+            return entry;
+        }
+        return null;
+    }
+
     public List<Map<String, Object>> buildPmvIndex() {
         List<Map<String, Object>> index = new ArrayList<>();
         for (CofDeckPmv pmv : deckPmvMapper.selectList(null)) {
             CofDeck deck = pmv.deckId != null ? deckMapper.selectById(pmv.deckId) : null;
-            if (deck == null || !ReviewStatus.isApproved(deck.reviewStatus)) {
+            if (deck == null || !isDeckPlayable(deck)) {
                 continue;
             }
             if (!ReviewStatus.isApproved(pmv.reviewStatus)) {

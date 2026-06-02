@@ -62,6 +62,17 @@ public class JsonRedisOps {
         redis.delete(key);
     }
 
+    /** Removes all keys starting with {@code prefix} (Redis KEYS scan). */
+    public void deleteByPrefix(String prefix) {
+        if (prefix == null || prefix.isBlank()) {
+            return;
+        }
+        Set<String> keys = redis.keys(prefix + "*");
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
+    }
+
     public void setAdd(String key, String member) {
         redis.opsForSet().add(key, member);
     }
