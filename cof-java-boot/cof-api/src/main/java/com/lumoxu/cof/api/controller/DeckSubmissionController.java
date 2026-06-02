@@ -4,6 +4,7 @@ import com.lumoxu.cof.api.auth.AuthContext;
 import com.lumoxu.cof.api.auth.RequireAuth;
 import com.lumoxu.cof.common.api.ApiResponse;
 import com.lumoxu.cof.service.DeckSubmissionService;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -93,5 +94,31 @@ public class DeckSubmissionController {
                         cropY,
                         cropWidth,
                         cropHeight)));
+    }
+
+    @DeleteMapping("/decks/{deckId}")
+    public ApiResponse<Map<String, Object>> deleteDeck(@PathVariable("deckId") long deckId) {
+        String clientId = AuthContext.get().clientId.toString();
+        submissionService.deleteDeck(clientId, deckId);
+        return ApiResponse.ok(Map.of("deleted", true));
+    }
+
+    @DeleteMapping("/decks/{deckId}/pmvs/{pmvId}")
+    public ApiResponse<Map<String, Object>> deletePmv(
+            @PathVariable("deckId") long deckId,
+            @PathVariable("pmvId") int pmvId) {
+        String clientId = AuthContext.get().clientId.toString();
+        submissionService.deletePmv(clientId, deckId, pmvId);
+        return ApiResponse.ok(Map.of("deleted", true));
+    }
+
+    @DeleteMapping("/decks/{deckId}/pmvs/{pmvId}/cards/{shot}")
+    public ApiResponse<Map<String, Object>> deleteCard(
+            @PathVariable("deckId") long deckId,
+            @PathVariable("pmvId") int pmvId,
+            @PathVariable("shot") String shot) {
+        String clientId = AuthContext.get().clientId.toString();
+        submissionService.deleteCard(clientId, deckId, pmvId, shot);
+        return ApiResponse.ok(Map.of("deleted", true));
     }
 }

@@ -60,7 +60,12 @@ export function createApiClient(baseURL = API_BASE): AxiosInstance {
         unauthorizedHandler?.();
       }
       const body = error.response?.data as ApiResponse<unknown> | undefined;
-      const message = body?.message || error.message || "请求失败";
+      let message = body?.message || error.message || "请求失败";
+      if (!error.response) {
+        message = "无法连接后端服务，请确认后端已启动。";
+      } else if (!body?.message && typeof status === "number" && status >= 500) {
+        message = "后端服务异常，请查看后端日志。";
+      }
       const code = body?.code ?? status ?? 500;
       return Promise.reject(new ApiError(message, code));
     },

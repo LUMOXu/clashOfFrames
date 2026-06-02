@@ -10,6 +10,12 @@ interface PlayerPatch {
   ex?: boolean;
   co?: boolean;
   rd?: boolean;
+  ll?: number;
+  lt?: number;
+  lp?: number;
+  lc?: boolean;
+  ls?: number;
+  lf?: number;
   rk?: number;
   ea?: number;
   drm?: number;
@@ -72,6 +78,20 @@ function applyPlayerPatch(
   if (typeof patch.ex === "boolean") next.exited = patch.ex;
   if (typeof patch.co === "boolean") next.connected = patch.co;
   if (typeof patch.rd === "boolean") next.ready = patch.rd;
+  if (typeof patch.ll === "number") {
+    next.loadingLoaded = Math.max(previous?.loadingLoaded ?? 0, patch.ll);
+  }
+  if (typeof patch.lt === "number") {
+    next.loadingTotal = Math.max(previous?.loadingTotal ?? 0, patch.lt);
+  }
+  if (typeof patch.lp === "number") {
+    next.loadingProgress = Math.max(previous?.loadingProgress ?? 0, patch.lp);
+  }
+  if (typeof patch.lc === "boolean") {
+    next.loadingCached = Boolean(previous?.loadingCached) || patch.lc;
+  }
+  if (typeof patch.ls === "number") next.loadingStartedAt = patch.ls;
+  if (typeof patch.lf === "number") next.loadingFinishedAt = patch.lf;
   if (typeof patch.rk === "number") next.rank = patch.rk;
   if (typeof patch.ea === "number") next.eliminatedAt = patch.ea;
   if (typeof patch.drm === "number" && patch.drm > 0) {
@@ -262,6 +282,10 @@ export function applyGameSync(previous: PublicGame | null, sync: unknown): Publi
     return previous;
   }
   if (node.ev === "play") {
+    const incomingPlayCount = typeof node.pc === "number" ? node.pc : 0;
+    if (incomingPlayCount > 0 && (previous.playCount ?? 0) >= incomingPlayCount) {
+      return previous;
+    }
     return applyPlayCardEvent(previous, node);
   }
 

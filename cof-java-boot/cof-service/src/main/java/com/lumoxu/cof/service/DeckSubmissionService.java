@@ -53,6 +53,10 @@ public class DeckSubmissionService {
     @Transactional
     public void deleteDeck(String clientId, long deckId) {
         CofDeck deck = requireOwnedDeck(clientId, deckId);
+        for (CofCard card : cardMapper.selectList(new QueryWrapper<CofCard>().eq("deck_id", deckId))) {
+            paths.deleteCardImageIfPresent(card.imageUrl);
+        }
+        paths.deleteCardImageIfPresent(deck.backUrl);
         cardMapper.delete(new QueryWrapper<CofCard>().eq("deck_id", deckId));
         deckPmvMapper.delete(new QueryWrapper<CofDeckPmv>().eq("deck_id", deckId));
         deckMapper.deleteById(deck.id);
@@ -228,6 +232,10 @@ public class DeckSubmissionService {
             recomputeDeckCounts(deck);
             deckCatalogService.bustCaches();
             return cardPayload(existing, pmv.matchId);
+        }
+        long existingCards = cardMapper.selectCount(new QueryWrapper<CofCard>().eq("pmv_id", pmv.pmvId));
+        if (existingCards >= 20) {
+            throw new CofException(ErrorCode.CONFLICT, "每个 PMV 最多上传 20 张截图。");
         }
         String imageUrl = paths.storeCardImage(jpeg, "jpg");
         CofCard card = new CofCard();

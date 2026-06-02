@@ -124,6 +124,30 @@ class GameSyncEncoderTest {
         assertTrue(gzip.length <= 1024, "gzip delta bytes=" + gzip.length);
     }
 
+    @Test
+    void playerPatchIncludesLoadingProgressFields() {
+        PublicGame previous = samplePublicGame(2, 0);
+        previous.status = "loading";
+        previous.players.get(0).ready = false;
+        previous.players.get(0).loadingLoaded = 1;
+        previous.players.get(0).loadingTotal = 8;
+        previous.players.get(0).loadingProgress = 10;
+
+        PublicGame current = samplePublicGame(2, 0);
+        current.status = "loading";
+        current.players.get(0).ready = false;
+        current.players.get(0).loadingLoaded = 6;
+        current.players.get(0).loadingTotal = 10;
+        current.players.get(0).loadingProgress = 60;
+
+        JsonNode delta = encoder.encodeDelta(previous, current);
+        JsonNode patch = delta.path("pl").get(0);
+        assertEquals("p0", patch.path("id").asText());
+        assertEquals(6, patch.path("ll").asInt());
+        assertEquals(10, patch.path("lt").asInt());
+        assertEquals(60, patch.path("lp").asInt());
+    }
+
     private static byte[] gzipJson(byte[] raw) throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (GZIPOutputStream gzip = new GZIPOutputStream(baos)) {

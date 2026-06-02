@@ -108,6 +108,7 @@ public class GameRuntimeService {
     }
 
     public PublicGame updateLoadingProgress(String gameId, String clientId, Map<String, Object> body, RoomState room) {
+        return callWithGameLock(gameId, () -> {
         GameStateBundle bundle = getRequired(gameId);
         Game game = bundle.game;
         if ("playing".equals(game.status) || "finished".equals(game.status)) {
@@ -126,9 +127,10 @@ public class GameRuntimeService {
         boolean done = Boolean.TRUE.equals(body.get("done"));
         int total = Math.max(player.loadingTotal, Math.max(0, reportedTotal));
         int loaded = Math.max(player.loadingLoaded, Math.min(total > 0 ? total : Integer.MAX_VALUE, Math.max(0, reportedLoaded)));
+        int computedProgress = total > 0 ? Math.round((loaded * 100f) / total) : 0;
         player.loadingTotal = total;
         player.loadingLoaded = loaded;
-        player.loadingProgress = total > 0 ? Math.round((loaded * 100f) / total) : 0;
+        player.loadingProgress = Math.max(player.loadingProgress, computedProgress);
         player.loadingCached = player.loadingCached || cached;
         player.loadingStartedAt = player.loadingStartedAt == null ? System.currentTimeMillis() : player.loadingStartedAt;
         if (done || (total > 0 && loaded >= total)) {
@@ -140,6 +142,7 @@ public class GameRuntimeService {
         save(game);
         advanceLoading(room, game);
         return toPublicGame(game);
+        });
     }
 
     public void advanceLoading(RoomState room, Game game) {

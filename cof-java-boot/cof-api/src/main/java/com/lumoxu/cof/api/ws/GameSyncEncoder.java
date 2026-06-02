@@ -275,6 +275,17 @@ public class GameSyncEncoder {
         patch.put("el", player.eliminated);
         patch.put("ex", player.exited);
         patch.put("co", player.connected);
+        patch.put("rd", player.ready);
+        patch.put("ll", player.loadingLoaded);
+        patch.put("lt", player.loadingTotal);
+        patch.put("lp", player.loadingProgress);
+        patch.put("lc", player.loadingCached);
+        if (player.loadingStartedAt != null) {
+            patch.put("ls", player.loadingStartedAt);
+        }
+        if (player.loadingFinishedAt != null) {
+            patch.put("lf", player.loadingFinishedAt);
+        }
         if (player.drawPile != null && !player.drawPile.isEmpty()) {
             patch.set("dr", encodeCompactCards(player.drawPile));
         }
@@ -307,6 +318,28 @@ public class GameSyncEncoder {
         }
         if (previous.ready != current.ready) {
             patch.put("rd", current.ready);
+        }
+        if (previous.loadingLoaded != current.loadingLoaded) {
+            patch.put("ll", current.loadingLoaded);
+        }
+        if (previous.loadingTotal != current.loadingTotal) {
+            patch.put("lt", current.loadingTotal);
+        }
+        if (previous.loadingProgress != current.loadingProgress) {
+            patch.put("lp", current.loadingProgress);
+        }
+        if (previous.loadingCached != current.loadingCached) {
+            patch.put("lc", current.loadingCached);
+        }
+        if (!Objects.equals(previous.loadingStartedAt, current.loadingStartedAt)) {
+            if (current.loadingStartedAt != null) {
+                patch.put("ls", current.loadingStartedAt);
+            }
+        }
+        if (!Objects.equals(previous.loadingFinishedAt, current.loadingFinishedAt)) {
+            if (current.loadingFinishedAt != null) {
+                patch.put("lf", current.loadingFinishedAt);
+            }
         }
         if (!Objects.equals(previous.rank, current.rank)) {
             if (current.rank != null) {

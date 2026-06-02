@@ -24,6 +24,9 @@ export interface PublicPlayer {
   loadingLoaded?: number;
   loadingTotal?: number;
   loadingProgress?: number;
+  loadingCached?: boolean;
+  loadingStartedAt?: number;
+  loadingFinishedAt?: number;
   drawCount?: number;
   displayCount?: number;
   isComputer?: boolean;

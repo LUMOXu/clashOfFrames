@@ -6,10 +6,25 @@ import { setTokenProvider, setUnauthorizedHandler } from "@/api/client";
 import type { BootstrapData, PublicPlayer } from "@/types/api";
 
 const TOKEN_KEY = "cof.token";
+const PLAYER_KEY = "cof.player";
+
+function loadStoredPlayer(): PublicPlayer | null {
+  try {
+    const raw = localStorage.getItem(PLAYER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PublicPlayer>;
+    if (typeof parsed.clientId === "string" && typeof parsed.username === "string") {
+      return { clientId: parsed.clientId, username: parsed.username };
+    }
+  } catch {
+    localStorage.removeItem(PLAYER_KEY);
+  }
+  return null;
+}
 
 export const useAuthStore = defineStore("auth", () => {
   const token = ref(localStorage.getItem(TOKEN_KEY) || "");
-  const player = ref<PublicPlayer | null>(null);
+  const player = ref<PublicPlayer | null>(token.value ? loadStoredPlayer() : null);
   const bootstrap = ref<BootstrapData | null>(null);
   const loading = ref(false);
   const message = ref("");
@@ -26,9 +41,21 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
+  function applyPlayer(next: PublicPlayer | null): void {
+    player.value = next;
+    if (next) {
+      localStorage.setItem(
+        PLAYER_KEY,
+        JSON.stringify({ clientId: next.clientId, username: next.username }),
+      );
+    } else {
+      localStorage.removeItem(PLAYER_KEY);
+    }
+  }
+
   function clearSession(): void {
     applyToken("");
-    player.value = null;
+    applyPlayer(null);
     bootstrap.value = null;
   }
 
@@ -43,7 +70,7 @@ export const useAuthStore = defineStore("auth", () => {
     try {
       const data = await sessionApi.bootstrap();
       bootstrap.value = data;
-      player.value = data.player ?? null;
+      applyPlayer(data.player ?? null);
       if (!data.player && token.value) {
         clearSession();
       }
@@ -67,16 +94,16 @@ export const useAuthStore = defineStore("auth", () => {
     message.value = "";
     const result = await authApi.login({ username, password });
     applyToken(result.token);
-    player.value = result.player;
-    await refreshBootstrap();
+    applyPlayer(result.player);
+    await refreshBootstrap().catch(() => undefined);
   }
 
   async function register(username: string, password: string): Promise<void> {
     message.value = "";
     const result = await authApi.register({ username, password });
     applyToken(result.token);
-    player.value = result.player;
-    await refreshBootstrap();
+    applyPlayer(result.player);
+    await refreshBootstrap().catch(() => undefined);
   }
 
   async function logout(): Promise<void> {

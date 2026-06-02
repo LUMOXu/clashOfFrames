@@ -109,6 +109,62 @@ describe("applyGameSync", () => {
     expect(result?.preLastTopCards?.find((e) => e.playerId === "a")?.card?.id).toBe("d0");
   });
 
+  it("ignores duplicate play events that already reached the current play count", () => {
+    const prev: PublicGame = {
+      id: "g1",
+      status: "playing",
+      playCount: 6,
+      turnIndex: 1,
+      settings: { libraryIds: ["deck-a"] },
+      players: [
+        {
+          clientId: "a",
+          username: "A",
+          drawCount: 1,
+          drawPile: [{ id: "c1" }],
+          displayCount: 2,
+          displayPile: [
+            { id: "d0", pmvId: 1, imageUrl: "/x", playedSeq: 3 },
+            { id: "c0", pmvId: 4, imageUrl: "/y", playedSeq: 6 },
+          ],
+        },
+      ],
+    };
+    const result = applyGameSync(prev, {
+      ev: "play",
+      by: "a",
+      c: { i: "c0", l: "deck-a", p: 4, s: 6 },
+      pc: 6,
+      ti: 1,
+    });
+    expect(result?.players?.[0]?.drawPile?.map((c) => c.id)).toEqual(["c1"]);
+    expect(result?.players?.[0]?.displayPile?.map((c) => c.id)).toEqual(["d0", "c0"]);
+    expect(result?.playCount).toBe(6);
+  });
+
+  it("merges loading progress patches without moving progress backward", () => {
+    const prev: PublicGame = {
+      id: "g1",
+      status: "loading",
+      players: [
+        {
+          clientId: "a",
+          username: "A",
+          ready: false,
+          loadingLoaded: 8,
+          loadingTotal: 10,
+          loadingProgress: 80,
+        },
+      ],
+    };
+    const result = applyGameSync(prev, {
+      pl: [{ id: "a", rd: false, ll: 8, lt: 20, lp: 40 }],
+    });
+    expect(result?.players?.[0]?.loadingLoaded).toBe(8);
+    expect(result?.players?.[0]?.loadingTotal).toBe(20);
+    expect(result?.players?.[0]?.loadingProgress).toBe(80);
+  });
+
   it("preserves player order when merging patches", () => {
     const prev: PublicGame = {
       id: "g1",

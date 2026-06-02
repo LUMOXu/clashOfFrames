@@ -102,3 +102,24 @@ export async function addSubmissionCard(
     data: form,
   });
 }
+
+export async function deleteSubmissionDeck(deckId: number): Promise<void> {
+  await unwrap({
+    method: "DELETE",
+    url: `/submissions/decks/${deckId}`,
+  });
+}
+
+export async function deleteSubmissionPmv(deckId: number, pmvId: number): Promise<void> {
+  await unwrap({
+    method: "DELETE",
+    url: `/submissions/decks/${deckId}/pmvs/${pmvId}`,
+  });
+}
+
+export async function deleteSubmissionCard(deckId: number, pmvId: number, shot: string): Promise<void> {
+  await unwrap({
+    method: "DELETE",
+    url: `/submissions/decks/${deckId}/pmvs/${pmvId}/cards/${encodeURIComponent(shot)}`,
+  });
+}

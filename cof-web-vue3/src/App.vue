@@ -21,7 +21,9 @@ watch(
   (token) => {
     if (token) {
       gameStore.connectSocket(token);
-      void auth.refreshBootstrap();
+      void auth.refreshBootstrap().catch(() => {
+        /* route guards and forms surface auth/backend errors when needed */
+      });
     } else {
       gameStore.disconnectSocket();
       gameStore.clearGame();

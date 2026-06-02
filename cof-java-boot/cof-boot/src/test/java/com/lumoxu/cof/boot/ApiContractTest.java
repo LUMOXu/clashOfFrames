@@ -74,7 +74,7 @@ class ApiContractTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.libraries").isArray())
-                .andExpect(jsonPath("$.data.libraries[0].id").value("1"));
+                .andExpect(jsonPath("$.data.libraries[0].id").value("test-deck"));
         mockMvc.perform(get("/api/v1/meta/computer-players"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))

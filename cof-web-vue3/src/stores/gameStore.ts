@@ -13,6 +13,7 @@ export const useGameStore = defineStore("game", () => {
   const loadingProgress = ref({ loaded: 0, total: 0, done: false });
   const socket = new GameSocket();
   const connected = ref(false);
+  const actionsInFlight = new Set<string>();
   let roomHandler: ((room: RoomSummary) => void) | null = null;
 
   function applySync(sync: unknown): PublicGame | null {
@@ -37,13 +38,27 @@ export const useGameStore = defineStore("game", () => {
   }
 
   async function playCard(gameId: string): Promise<PublicGame | null> {
-    const sync = await gamesApi.playCard(gameId);
-    return applySync(sync);
+    const key = `play:${gameId}`;
+    if (actionsInFlight.has(key)) return currentGame.value;
+    actionsInFlight.add(key);
+    try {
+      const sync = await gamesApi.playCard(gameId);
+      return applySync(sync);
+    } finally {
+      actionsInFlight.delete(key);
+    }
   }
 
   async function ringBell(gameId: string): Promise<PublicGame | null> {
-    const sync = await gamesApi.ringBell(gameId);
-    return applySync(sync);
+    const key = `ring:${gameId}`;
+    if (actionsInFlight.has(key)) return currentGame.value;
+    actionsInFlight.add(key);
+    try {
+      const sync = await gamesApi.ringBell(gameId);
+      return applySync(sync);
+    } finally {
+      actionsInFlight.delete(key);
+    }
   }
 
   async function continueGame(gameId: string): Promise<void> {

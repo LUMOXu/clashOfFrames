@@ -72,4 +72,51 @@ class GameRuntimeServiceLoadingTest {
         assertEquals("playing", saved.status);
         assertEquals("playing", room.status);
     }
+
+    @Test
+    void updateLoadingProgressNeverMovesPlayerProgressBackwardWhenTotalIncreases() {
+        RoomState room = new RoomState();
+        room.id = "r1";
+        room.status = "loading";
+        room.players = new ArrayList<>(List.of("human-1", "human-2"));
+        room.settings = GameSettings.defaultSettings();
+
+        Room engineRoom = new Room();
+        engineRoom.id = room.id;
+        engineRoom.settings = room.settings;
+
+        List<Player> players = new ArrayList<>();
+        Player p1 = new Player();
+        p1.clientId = "human-1";
+        p1.username = "Human 1";
+        players.add(p1);
+        Player p2 = new Player();
+        p2.clientId = "human-2";
+        p2.username = "Human 2";
+        players.add(p2);
+
+        Card c1 = new Card();
+        c1.id = "c1";
+        Card c2 = new Card();
+        c2.id = "c2";
+        Game game = gameRuntimeService.createGame(engineRoom, players, List.of(c1, c2));
+        room.gameId = game.id;
+
+        gameRuntimeService.updateLoadingProgress(
+                game.id,
+                "human-1",
+                Map.of("loaded", 8, "total", 10),
+                room);
+        gameRuntimeService.updateLoadingProgress(
+                game.id,
+                "human-1",
+                Map.of("loaded", 8, "total", 20),
+                room);
+
+        Game saved = redis.get(com.lumoxu.cof.service.redis.RedisKeys.game(game.id), GameStateBundle.class)
+                .orElseThrow()
+                .game;
+        assertEquals(80, saved.players.get(0).loadingProgress);
+        assertEquals(20, saved.players.get(0).loadingTotal);
+    }
 }

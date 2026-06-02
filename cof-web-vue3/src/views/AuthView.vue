@@ -11,10 +11,23 @@ const loginPass = ref("");
 const regUser = ref("");
 const regPass = ref("");
 const regConfirm = ref("");
+const loginSubmitting = ref(false);
+const registerSubmitting = ref(false);
+
+function showAuthError(error: unknown, fallback: string): void {
+  auth.message = error instanceof Error && error.message ? error.message : fallback;
+}
 
 async function submitLogin(): Promise<void> {
-  await auth.login(loginUser.value.trim(), loginPass.value);
-  await router.push((route.query.redirect as string) || { name: "home" });
+  loginSubmitting.value = true;
+  try {
+    await auth.login(loginUser.value.trim(), loginPass.value);
+    await router.push((route.query.redirect as string) || { name: "home" });
+  } catch (error) {
+    showAuthError(error, "登录失败，请确认后端服务已启动。");
+  } finally {
+    loginSubmitting.value = false;
+  }
 }
 
 async function submitRegister(): Promise<void> {
@@ -22,8 +35,15 @@ async function submitRegister(): Promise<void> {
     auth.message = "两次密码不一致。";
     return;
   }
-  await auth.register(regUser.value.trim(), regPass.value);
-  await router.push({ name: "home" });
+  registerSubmitting.value = true;
+  try {
+    await auth.register(regUser.value.trim(), regPass.value);
+    await router.push((route.query.redirect as string) || { name: "home" });
+  } catch (error) {
+    showAuthError(error, "注册失败，请确认后端服务已启动。");
+  } finally {
+    registerSubmitting.value = false;
+  }
 }
 </script>
 
@@ -43,7 +63,9 @@ async function submitRegister(): Promise<void> {
           <label>密码
             <input v-model="loginPass" type="password" required autocomplete="current-password" />
           </label>
-          <button class="primary" type="submit">登录</button>
+          <button class="primary" type="submit" :disabled="loginSubmitting || auth.loading">
+            {{ loginSubmitting ? "登录中..." : "登录" }}
+          </button>
         </form>
         <form class="grid" @submit.prevent="submitRegister">
           <h2>注册</h2>
@@ -57,7 +79,9 @@ async function submitRegister(): Promise<void> {
           <label>确认密码
             <input v-model="regConfirm" type="password" minlength="6" required autocomplete="new-password" />
           </label>
-          <button type="submit">注册并进入</button>
+          <button type="submit" :disabled="registerSubmitting || auth.loading">
+            {{ registerSubmitting ? "注册中..." : "注册并进入" }}
+          </button>
         </form>
       </div>
     </section>

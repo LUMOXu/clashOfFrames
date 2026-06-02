@@ -11,6 +11,7 @@ const route = useRoute();
 const auth = useAuthStore();
 
 async function onLogout(): Promise<void> {
+  if (!window.confirm("确定要退出登录吗？")) return;
   await auth.logout();
 }
 </script>
@@ -18,15 +19,19 @@ async function onLogout(): Promise<void> {
 <template>
   <div class="app" :class="{ 'app-immersive': immersive }">
     <header class="topbar">
-      <div class="brand">
+      <RouterLink class="brand" :to="{ name: 'home' }" aria-label="主菜单">
         <strong>帧封相对</strong>
-        <span v-if="auth.player">{{ auth.player.username }}</span>
-      </div>
+        <span>Clash of Frames</span>
+      </RouterLink>
       <div class="top-actions">
+        <span v-if="auth.player" class="top-username">{{ auth.player.username }}</span>
         <RouterLink v-if="route.name !== 'home'" :to="{ name: 'home' }">
           <button type="button">主菜单</button>
         </RouterLink>
-        <button type="button" class="ghost" @click="onLogout">退出</button>
+        <RouterLink v-if="route.name !== 'profile'" :to="{ name: 'profile' }">
+          <button type="button">个人信息</button>
+        </RouterLink>
+        <button type="button" class="ghost" @click="onLogout">退出登录</button>
       </div>
     </header>
     <slot />

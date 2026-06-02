@@ -137,6 +137,8 @@ label {
 .brand {
   display: grid;
   gap: 2px;
+  color: inherit;
+  text-decoration: none;
 }
 
 .brand strong {
@@ -156,6 +158,12 @@ label {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.top-username {
+  color: var(--muted);
+  font-size: 14px;
+  margin-right: 2px;
 }
 
 .app-footer {
@@ -953,6 +961,28 @@ th button {
 
 .room-row {
   align-items: flex-start;
+}
+
+.rooms-list {
+  gap: 12px;
+}
+
+.room-card {
+  background: rgba(8, 11, 8, .28);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.room-card-main {
+  min-width: 0;
+}
+
+.room-card-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .room-meta {
