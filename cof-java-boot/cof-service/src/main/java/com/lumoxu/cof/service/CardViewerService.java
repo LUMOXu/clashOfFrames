@@ -51,7 +51,7 @@ public class CardViewerService {
             Map<Integer, CofDeckPmv> pmvMeta = new HashMap<>();
             if (deckId != null) {
                 for (CofDeckPmv pmv : deckPmvMapper.listByDeckId(deckId)) {
-                    pmvMeta.put(pmv.pmvId, pmv);
+                    pmvMeta.put(pmv.matchId, pmv);
                 }
             }
             Map<String, Map<String, Object>> pmvGroups = new LinkedHashMap<>();

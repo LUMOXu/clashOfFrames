@@ -1,6 +1,5 @@
 package com.lumoxu.cof.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.lumoxu.cof.common.api.CofException;
 import com.lumoxu.cof.common.api.ErrorCode;
 import com.lumoxu.cof.common.catalog.ReviewStatus;
@@ -10,13 +9,12 @@ import com.lumoxu.cof.domain.entity.CofDeckPmv;
 import com.lumoxu.cof.domain.mapper.CofCardMapper;
 import com.lumoxu.cof.domain.mapper.CofDeckMapper;
 import com.lumoxu.cof.domain.mapper.CofDeckPmvMapper;
-import org.springframework.beans.factory.annotation.Value;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,7 +28,7 @@ public class DeckSubmissionService {
     private static final Pattern SHOT_PATTERN = Pattern.compile("^[a-z]$");
     private static final Pattern FOLDER_PATTERN = Pattern.compile("^[a-zA-Z0-9_@'.\\-]{2,120}$");
 
-    private final Path resourceRoot;
+    private final ResourcePathMigration paths;
     private final CofDeckMapper deckMapper;
     private final CofDeckPmvMapper deckPmvMapper;
     private final CofCardMapper cardMapper;
@@ -38,18 +36,27 @@ public class DeckSubmissionService {
     private final DeckCatalogService deckCatalogService;
 
     public DeckSubmissionService(
-            @Value("${cof.resource-root:../cof-resource}") String resourceRoot,
+            ResourcePathMigration paths,
             CofDeckMapper deckMapper,
             CofDeckPmvMapper deckPmvMapper,
             CofCardMapper cardMapper,
             SubmissionImageProcessor imageProcessor,
             DeckCatalogService deckCatalogService) {
-        this.resourceRoot = Path.of(resourceRoot).toAbsolutePath().normalize();
+        this.paths = paths;
         this.deckMapper = deckMapper;
         this.deckPmvMapper = deckPmvMapper;
         this.cardMapper = cardMapper;
         this.imageProcessor = imageProcessor;
         this.deckCatalogService = deckCatalogService;
+    }
+
+    @Transactional
+    public void deleteDeck(String clientId, long deckId) {
+        CofDeck deck = requireOwnedDeck(clientId, deckId);
+        cardMapper.delete(new QueryWrapper<CofCard>().eq("deck_id", deckId));
+        deckPmvMapper.delete(new QueryWrapper<CofDeckPmv>().eq("deck_id", deckId));
+        deckMapper.deleteById(deck.id);
+        deckCatalogService.bustCaches();
     }
 
     public List<Map<String, Object>> listEditableDecks(String clientId) {
@@ -119,11 +126,6 @@ public class DeckSubmissionService {
         deckMapper.insert(deck);
         deck.backUrl = ResourcePathMigration.backUrl(deck.id);
         deckMapper.updateById(deck);
-        try {
-            Files.createDirectories(deckDir(deck.id));
-        } catch (IOException ex) {
-            throw new CofException(ErrorCode.INTERNAL, "创建牌组目录失败。");
-        }
         deckCatalogService.bustCaches();
         return deckPayload(deck, clientId);
     }
@@ -143,8 +145,7 @@ public class DeckSubmissionService {
             throw new CofException(ErrorCode.BAD_REQUEST, "图片过大（最大 15MB）。");
         }
         byte[] jpeg = imageProcessor.processDeckBack(file, cropX, cropY, cropW, cropH);
-        Path backPath = deckDir(deckId).resolve("back.jpg");
-        imageProcessor.writeJpegToPath(jpeg, backPath);
+        paths.writeDeckBack(jpeg, deckId);
         deck.backUrl = ResourcePathMigration.backUrl(deckId);
         deck.updatedAt = System.currentTimeMillis();
         deckMapper.updateById(deck);
@@ -155,20 +156,37 @@ public class DeckSubmissionService {
     @Transactional
     public Map<String, Object> addPmv(String clientId, long deckId, Map<String, Object> body) {
         CofDeck deck = requireOwnedDeck(clientId, deckId);
-        int pmvId = requiredInt(body, "pmvId", "PMV ID");
-        String pmvName = requiredString(body, "name", "PMV 名称");
-        CofDeckPmv existing = deckPmvMapper.selectOne(
-                new QueryWrapper<CofDeckPmv>().eq("deck_id", deckId).eq("pmv_id", pmvId).last("LIMIT 1"));
-        if (existing != null) {
+        int matchId = requiredInt(body, "pmvId", "PMV ID");
+        if (deckPmvMapper.findByDeckIdAndMatchId(deckId, matchId) != null) {
             throw new CofException(ErrorCode.CONFLICT, "该 PMV ID 已存在于本牌组。");
+        }
+        Map<String, Object> canonical = deckCatalogService.findApprovedPmvByMatchId(matchId);
+        String pmvName = requiredString(body, "name", "PMV 名称");
+        String pmvAuthor = optionalString(body, "author");
+        String pmvDescription = optionalString(body, "description");
+        String pmvLink = optionalString(body, "link");
+        if (canonical != null && !isPmvOwnedByClient(canonical, clientId, deckId)) {
+            String canonicalName = String.valueOf(canonical.get("name"));
+            if (!canonicalName.equals(pmvName.trim())) {
+                throw new CofException(
+                        ErrorCode.BAD_REQUEST,
+                        "该 PMV 编号已在其他牌组登记，名称须与已有 PMV 一致（"
+                                + canonicalName
+                                + "）。");
+            }
+            pmvName = canonicalName;
+            pmvAuthor = canonical.get("author") != null ? String.valueOf(canonical.get("author")) : null;
+            pmvDescription =
+                    canonical.get("description") != null ? String.valueOf(canonical.get("description")) : null;
+            pmvLink = canonical.get("link") != null ? String.valueOf(canonical.get("link")) : null;
         }
         CofDeckPmv pmv = new CofDeckPmv();
         pmv.deckId = deckId;
-        pmv.pmvId = pmvId;
+        pmv.matchId = matchId;
         pmv.name = pmvName;
-        pmv.author = optionalString(body, "author");
-        pmv.description = optionalString(body, "description");
-        pmv.link = optionalString(body, "link");
+        pmv.author = pmvAuthor;
+        pmv.description = pmvDescription;
+        pmv.link = pmvLink;
         pmv.submitterClientId = clientId;
         pmv.reviewStatus = ReviewStatus.PENDING;
         deckPmvMapper.insert(pmv);
@@ -181,7 +199,7 @@ public class DeckSubmissionService {
     public Map<String, Object> addCard(
             String clientId,
             long deckId,
-            int pmvId,
+            int matchId,
             String shot,
             InputStream file,
             long fileSize,
@@ -191,37 +209,72 @@ public class DeckSubmissionService {
             Integer cropH) throws IOException {
         CofDeck deck = requireOwnedDeck(clientId, deckId);
         String normalizedShot = normalizeShot(shot);
-        requirePmv(deckId, pmvId, clientId);
-        CofCard existing = cardMapper.selectOne(
-                new QueryWrapper<CofCard>()
-                        .eq("deck_id", deckId)
-                        .eq("pmv_id", pmvId)
-                        .eq("card_id", normalizedShot)
-                        .last("LIMIT 1"));
-        if (existing != null) {
-            throw new CofException(ErrorCode.CONFLICT, "该镜头已存在。");
-        }
+        CofDeckPmv pmv = requirePmv(deckId, matchId, clientId);
         if (fileSize > 15 * 1024 * 1024) {
             throw new CofException(ErrorCode.BAD_REQUEST, "图片过大（最大 15MB）。");
         }
         byte[] jpeg = imageProcessor.processCardFrame(file, cropX, cropY, cropW, cropH);
-        Path cardPath = deckDir(deckId).resolve(String.valueOf(pmvId)).resolve(normalizedShot + ".jpg");
-        imageProcessor.writeJpegToPath(jpeg, cardPath);
-        String imageUrl = ResourcePathMigration.cardUrl(deckId, pmvId, normalizedShot, "jpg");
+        CofCard existing = cardMapper.findByPmvIdAndShot(pmv.pmvId, normalizedShot);
+        if (existing != null) {
+            if (!clientId.equals(existing.submitterClientId)) {
+                throw new CofException(ErrorCode.FORBIDDEN, "只能覆盖自己提交的同镜头卡牌。");
+            }
+            paths.deleteCardImageIfPresent(existing.imageUrl);
+            String imageUrl = paths.storeCardImage(jpeg, "jpg");
+            existing.imageUrl = imageUrl;
+            existing.fileName = imageUrl.substring(imageUrl.lastIndexOf('/') + 1);
+            existing.reviewStatus = ReviewStatus.PENDING;
+            cardMapper.updateById(existing);
+            recomputeDeckCounts(deck);
+            deckCatalogService.bustCaches();
+            return cardPayload(existing, pmv.matchId);
+        }
+        String imageUrl = paths.storeCardImage(jpeg, "jpg");
         CofCard card = new CofCard();
         card.deckId = deckId;
-        card.pmvId = pmvId;
-        card.cardId = normalizedShot;
+        card.pmvId = pmv.pmvId;
         card.shot = normalizedShot;
-        card.fileName = normalizedShot + ".jpg";
+        card.fileName = imageUrl.substring(imageUrl.lastIndexOf('/') + 1);
         card.imageUrl = imageUrl;
-        card.cardUid = deckId + "/" + pmvId + "/" + normalizedShot;
+        card.cardUid = deckId + "/" + matchId + "/" + normalizedShot;
         card.submitterClientId = clientId;
         card.reviewStatus = ReviewStatus.PENDING;
         cardMapper.insert(card);
         recomputeDeckCounts(deck);
         deckCatalogService.bustCaches();
-        return cardPayload(card);
+        return cardPayload(card, pmv.matchId);
+    }
+
+    @Transactional
+    public void deletePmv(String clientId, long deckId, int matchId) {
+        CofDeck deck = requireOwnedDeck(clientId, deckId);
+        CofDeckPmv pmv = requireOwnedPmvRow(clientId, deckId, matchId);
+        List<CofCard> cards = cardMapper.selectList(new QueryWrapper<CofCard>().eq("pmv_id", pmv.pmvId));
+        for (CofCard card : cards) {
+            paths.deleteCardImageIfPresent(card.imageUrl);
+        }
+        cardMapper.delete(new QueryWrapper<CofCard>().eq("pmv_id", pmv.pmvId));
+        deckPmvMapper.deleteById(pmv.pmvId);
+        recomputeDeckCounts(deck);
+        deckCatalogService.bustCaches();
+    }
+
+    @Transactional
+    public void deleteCard(String clientId, long deckId, int matchId, String shot) {
+        CofDeck deck = requireOwnedDeck(clientId, deckId);
+        CofDeckPmv pmv = requireOwnedPmvRow(clientId, deckId, matchId);
+        String normalizedShot = normalizeShot(shot);
+        CofCard card = cardMapper.findByPmvIdAndShot(pmv.pmvId, normalizedShot);
+        if (card == null) {
+            throw new CofException(ErrorCode.NOT_FOUND, "镜头不存在。");
+        }
+        if (!clientId.equals(card.submitterClientId)) {
+            throw new CofException(ErrorCode.FORBIDDEN, "只能删除自己提交的镜头。");
+        }
+        paths.deleteCardImageIfPresent(card.imageUrl);
+        cardMapper.deleteById(card.cardId);
+        recomputeDeckCounts(deck);
+        deckCatalogService.bustCaches();
     }
 
     private CofDeck requireOwnedDeck(String clientId, long deckId) {
@@ -238,15 +291,26 @@ public class DeckSubmissionService {
         return deck;
     }
 
-    private void requirePmv(long deckId, int pmvId, String clientId) {
-        CofDeckPmv pmv = deckPmvMapper.selectOne(
-                new QueryWrapper<CofDeckPmv>().eq("deck_id", deckId).eq("pmv_id", pmvId).last("LIMIT 1"));
+    private CofDeckPmv requirePmv(long deckId, int matchId, String clientId) {
+        CofDeckPmv pmv = deckPmvMapper.findByDeckIdAndMatchId(deckId, matchId);
         if (pmv == null) {
             throw new CofException(ErrorCode.BAD_REQUEST, "请先添加该 PMV。");
         }
         if (!clientId.equals(pmv.submitterClientId) && !ReviewStatus.isApproved(pmv.reviewStatus)) {
             throw new CofException(ErrorCode.FORBIDDEN, "无权向该 PMV 添加卡牌。");
         }
+        return pmv;
+    }
+
+    private CofDeckPmv requireOwnedPmvRow(String clientId, long deckId, int matchId) {
+        CofDeckPmv pmv = deckPmvMapper.findByDeckIdAndMatchId(deckId, matchId);
+        if (pmv == null) {
+            throw new CofException(ErrorCode.NOT_FOUND, "PMV 不存在。");
+        }
+        if (!clientId.equals(pmv.submitterClientId)) {
+            throw new CofException(ErrorCode.FORBIDDEN, "只能删除自己提交的 PMV。");
+        }
+        return pmv;
     }
 
     private void recomputeDeckCounts(CofDeck deck) {
@@ -258,11 +322,11 @@ public class DeckSubmissionService {
         deckMapper.updateById(deck);
     }
 
-    private Path deckDir(long deckId) {
-        return resourceRoot.resolve("cards").resolve(String.valueOf(deckId));
-    }
-
     private Map<String, Object> deckPayload(CofDeck deck, String viewerId) {
+        Map<Long, Integer> matchByPmvId = new HashMap<>();
+        for (CofDeckPmv pmv : deckPmvMapper.listByDeckId(deck.id)) {
+            matchByPmvId.put(pmv.pmvId, pmv.matchId);
+        }
         Map<String, Object> row = new HashMap<>();
         row.put("id", deck.id);
         row.put("folderName", deck.folderName);
@@ -288,7 +352,8 @@ public class DeckSubmissionService {
         List<Map<String, Object>> cardRows = new ArrayList<>();
         for (CofCard card : cardMapper.listByDeckId(deck.id)) {
             if (ReviewStatus.isVisibleToUser(card.reviewStatus, card.submitterClientId, viewerId)) {
-                cardRows.add(cardPayload(card));
+                Integer matchId = matchByPmvId.get(card.pmvId);
+                cardRows.add(cardPayload(card, matchId));
             }
         }
         row.put("cards", cardRows);
@@ -297,9 +362,9 @@ public class DeckSubmissionService {
 
     private static Map<String, Object> pmvPayload(CofDeckPmv pmv) {
         Map<String, Object> row = new HashMap<>();
-        row.put("id", pmv.id);
+        row.put("pmvRowId", pmv.pmvId);
         row.put("deckId", pmv.deckId);
-        row.put("pmvId", pmv.pmvId);
+        row.put("pmvId", pmv.matchId);
         row.put("name", pmv.name);
         row.put("author", pmv.author);
         row.put("description", pmv.description);
@@ -308,11 +373,11 @@ public class DeckSubmissionService {
         return row;
     }
 
-    private static Map<String, Object> cardPayload(CofCard card) {
+    private static Map<String, Object> cardPayload(CofCard card, Integer matchId) {
         Map<String, Object> row = new HashMap<>();
-        row.put("id", card.id);
+        row.put("id", card.cardId);
         row.put("deckId", card.deckId);
-        row.put("pmvId", card.pmvId);
+        row.put("pmvId", matchId);
         row.put("shot", card.shot);
         row.put("imageUrl", card.imageUrl);
         row.put("reviewStatus", card.reviewStatus);
@@ -353,6 +418,15 @@ public class DeckSubmissionService {
             return null;
         }
         return String.valueOf(body.get(key));
+    }
+
+    private static boolean isPmvOwnedByClient(Map<String, Object> canonical, String clientId, long deckId) {
+        Object deckRef = canonical.get("deckId");
+        if (deckRef instanceof Number number && number.longValue() == deckId) {
+            return true;
+        }
+        Object submitter = canonical.get("submitterClientId");
+        return submitter != null && clientId.equals(String.valueOf(submitter));
     }
 
     private static int requiredInt(Map<String, Object> body, String key, String label) {

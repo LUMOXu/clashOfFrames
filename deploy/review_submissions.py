@@ -5,8 +5,15 @@ Manual review tool for user-submitted decks, PMVs, and cards.
 Runs outside the game server — intended for server admins with DB access.
 Approves or rejects pending rows in cof_deck / cof_deck_pmv / cof_card.
 
+Schema (V8+):
+  - cof_deck_pmv.pmv_id     — surrogate PK (BIGSERIAL)
+  - cof_deck_pmv.match_id   — user-facing PMV number for bell matching
+  - cof_card.card_id        — surrogate PK (BIGSERIAL)
+  - cof_card.pmv_id         — FK to cof_deck_pmv.pmv_id
+  - cof_card.shot           — lens letter a-z
+
 Usage:
-  export DATABASE_URL=postgresql://postgres:123123@127.0.0.1:5432/cof_db
+  export DATABASE_URL=postgresql://cof:cof@127.0.0.1:5432/cof_db
   python3 deploy/review_submissions.py
 
 Requires: psycopg2-binary (pip install -r deploy/requirements.txt)
@@ -27,7 +34,7 @@ except ImportError:
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres:123123@127.0.0.1:5432/cof_db",
+    "postgresql://cof:cof@127.0.0.1:5432/cof_db",
 )
 COF_API_BASE = os.environ.get("COF_API_BASE", "http://127.0.0.1:9002/api/v1").rstrip("/")
 
@@ -52,14 +59,13 @@ def refresh_app_catalog() -> None:
     except urllib.error.URLError as ex:
         print(
             f"Warn: could not call {url} ({ex}). "
-            "Restart cof-boot or run: curl -X POST "
+            "Restart cof-boot or: curl -X POST "
             f"{COF_API_BASE}/admin/catalog/reconcile",
             file=sys.stderr,
         )
 
 
 def try_publish_deck(conn, deck_id: int) -> None:
-    """Enable deck when all PMVs/cards are approved (matches DeckCatalogReviewService)."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT review_status, enabled FROM cof_deck WHERE id = %s",
@@ -73,8 +79,7 @@ def try_publish_deck(conn, deck_id: int) -> None:
                 return
             cur.execute(
                 """
-                UPDATE cof_deck
-                SET enabled = TRUE,
+                UPDATE cof_deck SET enabled = TRUE,
                     updated_at = EXTRACT(EPOCH FROM NOW()) * 1000
                 WHERE id = %s
                 """,
@@ -83,19 +88,13 @@ def try_publish_deck(conn, deck_id: int) -> None:
             conn.commit()
             return
         cur.execute(
-            """
-            SELECT COUNT(*) FROM cof_deck_pmv
-            WHERE deck_id = %s AND review_status <> 'approved'
-            """,
+            "SELECT COUNT(*) FROM cof_deck_pmv WHERE deck_id = %s AND review_status <> 'approved'",
             (deck_id,),
         )
         if cur.fetchone()[0] > 0:
             return
         cur.execute(
-            """
-            SELECT COUNT(*) FROM cof_card
-            WHERE deck_id = %s AND review_status <> 'approved'
-            """,
+            "SELECT COUNT(*) FROM cof_card WHERE deck_id = %s AND review_status <> 'approved'",
             (deck_id,),
         )
         if cur.fetchone()[0] > 0:
@@ -122,22 +121,31 @@ def fetch_pending(conn) -> dict[str, list[dict[str, Any]]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
-            SELECT id, folder_name, name, submitter_client_id, review_status, card_count, pmv_count, updated_at
-            FROM cof_deck WHERE review_status = 'pending' ORDER BY updated_at DESC
+            SELECT id, folder_name, name, submitter_client_id, review_status,
+                   card_count, pmv_count, updated_at
+            FROM cof_deck
+            WHERE review_status = 'pending'
+            ORDER BY updated_at DESC
             """
         )
         decks = list(cur.fetchall())
         cur.execute(
             """
-            SELECT id, deck_id, pmv_id, name, author, submitter_client_id, review_status
-            FROM cof_deck_pmv WHERE review_status = 'pending' ORDER BY deck_id, pmv_id
+            SELECT pmv_id, deck_id, match_id, name, author, submitter_client_id, review_status
+            FROM cof_deck_pmv
+            WHERE review_status = 'pending'
+            ORDER BY deck_id, match_id
             """
         )
         pmvs = list(cur.fetchall())
         cur.execute(
             """
-            SELECT id, deck_id, pmv_id, card_id, shot, image_url, submitter_client_id, review_status
-            FROM cof_card WHERE review_status = 'pending' ORDER BY deck_id, pmv_id, card_id
+            SELECT c.card_id, c.deck_id, c.pmv_id, p.match_id, c.shot, c.image_url,
+                   c.submitter_client_id, c.review_status
+            FROM cof_card c
+            JOIN cof_deck_pmv p ON p.pmv_id = c.pmv_id
+            WHERE c.review_status = 'pending'
+            ORDER BY c.deck_id, p.match_id, c.shot
             """
         )
         cards = list(cur.fetchall())
@@ -157,17 +165,27 @@ def approve_deck(conn, deck_id: int) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE cof_deck SET review_status = 'approved', enabled = TRUE, updated_at = EXTRACT(EPOCH FROM NOW()) * 1000
+            UPDATE cof_deck
+            SET review_status = 'approved', enabled = TRUE,
+                updated_at = EXTRACT(EPOCH FROM NOW()) * 1000
             WHERE id = %s
             """,
             (deck_id,),
         )
         cur.execute(
-            "UPDATE cof_deck_pmv SET review_status = 'approved' WHERE deck_id = %s AND review_status = 'pending'",
+            """
+            UPDATE cof_deck_pmv
+            SET review_status = 'approved'
+            WHERE deck_id = %s AND review_status = 'pending'
+            """,
             (deck_id,),
         )
         cur.execute(
-            "UPDATE cof_card SET review_status = 'approved' WHERE deck_id = %s AND review_status = 'pending'",
+            """
+            UPDATE cof_card
+            SET review_status = 'approved'
+            WHERE deck_id = %s AND review_status = 'pending'
+            """,
             (deck_id,),
         )
     conn.commit()
@@ -189,52 +207,58 @@ def reject_deck(conn, deck_id: int) -> None:
 def approve_pmv(conn, pmv_row_id: int) -> None:
     deck_id = None
     with conn.cursor() as cur:
-        cur.execute("SELECT deck_id FROM cof_deck_pmv WHERE id = %s", (pmv_row_id,))
+        cur.execute("SELECT deck_id FROM cof_deck_pmv WHERE pmv_id = %s", (pmv_row_id,))
         row = cur.fetchone()
         if row:
             deck_id = row[0]
         cur.execute(
-            "UPDATE cof_deck_pmv SET review_status = 'approved' WHERE id = %s",
+            "UPDATE cof_deck_pmv SET review_status = 'approved' WHERE pmv_id = %s",
             (pmv_row_id,),
         )
     conn.commit()
     if deck_id is not None:
         try_publish_deck(conn, deck_id)
-    print(f"Approved PMV row id={pmv_row_id}")
+    print(f"Approved PMV row pmv_id={pmv_row_id}")
     refresh_app_catalog()
 
 
 def reject_pmv(conn, pmv_row_id: int) -> None:
     with conn.cursor() as cur:
-        cur.execute("UPDATE cof_deck_pmv SET review_status = 'rejected' WHERE id = %s", (pmv_row_id,))
+        cur.execute(
+            "UPDATE cof_deck_pmv SET review_status = 'rejected' WHERE pmv_id = %s",
+            (pmv_row_id,),
+        )
     conn.commit()
-    print(f"Rejected PMV row id={pmv_row_id}")
+    print(f"Rejected PMV row pmv_id={pmv_row_id}")
     refresh_app_catalog()
 
 
 def approve_card(conn, card_row_id: int) -> None:
     deck_id = None
     with conn.cursor() as cur:
-        cur.execute("SELECT deck_id FROM cof_card WHERE id = %s", (card_row_id,))
+        cur.execute("SELECT deck_id FROM cof_card WHERE card_id = %s", (card_row_id,))
         row = cur.fetchone()
         if row:
             deck_id = row[0]
         cur.execute(
-            "UPDATE cof_card SET review_status = 'approved' WHERE id = %s",
+            "UPDATE cof_card SET review_status = 'approved' WHERE card_id = %s",
             (card_row_id,),
         )
     conn.commit()
     if deck_id is not None:
         try_publish_deck(conn, deck_id)
-    print(f"Approved card row id={card_row_id}")
+    print(f"Approved card row card_id={card_row_id}")
     refresh_app_catalog()
 
 
 def reject_card(conn, card_row_id: int) -> None:
     with conn.cursor() as cur:
-        cur.execute("UPDATE cof_card SET review_status = 'rejected' WHERE id = %s", (card_row_id,))
+        cur.execute(
+            "UPDATE cof_card SET review_status = 'rejected' WHERE card_id = %s",
+            (card_row_id,),
+        )
     conn.commit()
-    print(f"Rejected card row id={card_row_id}")
+    print(f"Rejected card row card_id={card_row_id}")
     refresh_app_catalog()
 
 
@@ -242,14 +266,14 @@ def prompt_action() -> None:
     print(
         """
 Commands:
-  ad <deck_id>     Approve deck (and pending PMVs/cards in that deck)
-  rd <deck_id>     Reject deck
-  ap <pmv_row_id>  Approve PMV row
-  rp <pmv_row_id>  Reject PMV row
-  ac <card_row_id> Approve card row
-  rc <card_row_id> Reject card row
-  r              Refresh list
-  q              Quit
+  ad <deck_id>       Approve deck (and pending PMVs/cards in that deck)
+  rd <deck_id>       Reject deck
+  ap <pmv_row_id>    Approve PMV row (cof_deck_pmv.pmv_id)
+  rp <pmv_row_id>    Reject PMV row
+  ac <card_row_id>   Approve card row (cof_card.card_id)
+  rc <card_row_id>   Reject card row
+  r                  Refresh list
+  q                  Quit
 """
     )
 
@@ -263,17 +287,25 @@ def main() -> None:
             print_section(
                 "Pending decks",
                 pending["decks"],
-                lambda r: f"#{r['id']} {r['name']} ({r['folder_name']}) by {r['submitter_client_id']} cards={r['card_count']}",
+                lambda r: (
+                    f"#{r['id']} {r['name']} ({r['folder_name']}) "
+                    f"by {r['submitter_client_id']} cards={r['card_count']}"
+                ),
             )
             print_section(
                 "Pending PMVs",
                 pending["pmvs"],
-                lambda r: f"#{r['id']} deck={r['deck_id']} pmv={r['pmv_id']} {r['name']}",
+                lambda r: (
+                    f"pmv_id={r['pmv_id']} deck={r['deck_id']} match_id={r['match_id']} {r['name']}"
+                ),
             )
             print_section(
                 "Pending cards",
                 pending["cards"],
-                lambda r: f"#{r['id']} deck={r['deck_id']} pmv={r['pmv_id']} shot={r['shot']} {r['image_url']}",
+                lambda r: (
+                    f"card_id={r['card_id']} deck={r['deck_id']} match_id={r['match_id']} "
+                    f"shot={r['shot']} {r['image_url']}"
+                ),
             )
             prompt_action()
             line = input("> ").strip()

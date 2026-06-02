@@ -7,11 +7,14 @@ import com.baomidou.mybatisplus.annotation.TableName;
 @TableName("cof_card")
 public class CofCard {
 
-    @TableId(type = IdType.AUTO)
-    public Long id;
+    @TableId(value = "card_id", type = IdType.AUTO)
+    public Long cardId;
+
     public Long deckId;
-    public Integer pmvId;
-    public String cardId;
+
+    /** FK to {@link CofDeckPmv#pmvId}. */
+    public Long pmvId;
+
     public String shot;
     public String fileName;
     public String imageUrl;

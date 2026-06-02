@@ -67,6 +67,7 @@ public class DeckCatalogImportService {
         int count = 0;
         try (Stream<Path> dirs = Files.list(cardsRoot)) {
             List<Path> deckDirs = dirs.filter(Files::isDirectory)
+                    .filter(p -> !"backs".equals(p.getFileName().toString()))
                     .filter(p -> !isNumericFolder(p.getFileName().toString()))
                     .sorted(Comparator.comparing(p -> p.getFileName().toString()))
                     .toList();
@@ -111,7 +112,6 @@ public class DeckCatalogImportService {
         deck.submitterClientId = null;
         deck.updatedAt = now;
         if (deck.id == null) {
-            // back_url is NOT NULL; real path is assigned after insert when id is known.
             deck.backUrl = ResourcePathMigration.backUrl(0);
             deckMapper.insert(deck);
         } else {
@@ -119,19 +119,23 @@ public class DeckCatalogImportService {
         }
 
         long deckId = deck.id;
+        pathMigration.copyDeckBack(back, deckId);
         deck.backUrl = ResourcePathMigration.backUrl(deckId);
         deckMapper.updateById(deck);
 
-        Path targetDeckDir = resourceRoot.resolve("cards").resolve(String.valueOf(deckId));
-        List<ResourcePathMigration.MigratedCard> migrated =
-                pathMigration.migrateLegacyCards(libraryDir, targetDeckDir, deckId);
-        pathMigration.syncCanonicalDeckDir(libraryDir, targetDeckDir, deckId);
+        List<ResourcePathMigration.LegacyImportedCard> importedImages =
+                pathMigration.importLegacyDeckImages(libraryDir, deckId);
+        Map<String, ResourcePathMigration.LegacyImportedCard> importedByKey = new HashMap<>();
+        for (ResourcePathMigration.LegacyImportedCard card : importedImages) {
+            importedByKey.put(card.matchId() + ":" + card.shot(), card);
+        }
 
         deckPmvMapper.delete(new QueryWrapper<CofDeckPmv>().eq("deck_id", deckId));
+        Map<Integer, Long> pmvPkByMatchId = new HashMap<>();
         for (PmvEntry entry : manifestData.pmvs) {
             CofDeckPmv pmv = new CofDeckPmv();
             pmv.deckId = deckId;
-            pmv.pmvId = entry.pmvId;
+            pmv.matchId = entry.matchId;
             pmv.name = entry.name;
             pmv.author = entry.author;
             pmv.description = entry.description;
@@ -139,50 +143,86 @@ public class DeckCatalogImportService {
             pmv.reviewStatus = ReviewStatus.APPROVED;
             pmv.submitterClientId = null;
             deckPmvMapper.insert(pmv);
+            pmvPkByMatchId.put(entry.matchId, pmv.pmvId);
         }
 
         cardMapper.delete(new QueryWrapper<CofCard>().eq("deck_id", deckId));
-        Map<String, ResourcePathMigration.MigratedCard> migratedByKey = new HashMap<>();
-        for (ResourcePathMigration.MigratedCard card : migrated) {
-            migratedByKey.put(card.pmvId() + ":" + card.cardId(), card);
-        }
-        List<CofCard> cards = discoverCards(targetDeckDir, deckId, migratedByKey);
+        List<CofCard> cards = buildCardsFromImports(deckId, importedByKey, pmvPkByMatchId);
         if (cards.isEmpty()) {
-            cards = discoverCards(libraryDir, deckId, migratedByKey);
+            cards = discoverCardsFromLegacyFiles(libraryDir, deckId, importedByKey, pmvPkByMatchId);
         }
         for (CofCard card : cards) {
             cardMapper.insert(card);
         }
 
         deck.cardCount = cards.size();
-        deck.pmvCount = (int) cards.stream().map(c -> c.pmvId).distinct().count();
+        deck.pmvCount = pmvPkByMatchId.size();
         deckMapper.updateById(deck);
         return 1;
     }
 
-    private List<CofCard> discoverCards(
-            Path deckDir,
+    private List<CofCard> buildCardsFromImports(
             long deckId,
-            Map<String, ResourcePathMigration.MigratedCard> migratedByKey) throws IOException {
+            Map<String, ResourcePathMigration.LegacyImportedCard> importedByKey,
+            Map<Integer, Long> pmvPkByMatchId) {
         List<CofCard> cards = new ArrayList<>();
-        if (!Files.isDirectory(deckDir)) {
+        for (ResourcePathMigration.LegacyImportedCard imported : importedByKey.values()) {
+            Long pmvPk = pmvPkByMatchId.get(imported.matchId());
+            if (pmvPk == null) {
+                continue;
+            }
+            CofCard card = new CofCard();
+            card.deckId = deckId;
+            card.pmvId = pmvPk;
+            card.shot = imported.shot();
+            card.fileName = imported.fileName();
+            card.imageUrl = imported.imageUrl();
+            card.cardUid = deckId + "/" + imported.matchId() + "/" + imported.shot();
+            card.reviewStatus = ReviewStatus.APPROVED;
+            card.submitterClientId = null;
+            cards.add(card);
+        }
+        return cards;
+    }
+
+    private List<CofCard> discoverCardsFromLegacyFiles(
+            Path libraryDir,
+            long deckId,
+            Map<String, ResourcePathMigration.LegacyImportedCard> importedByKey,
+            Map<Integer, Long> pmvPkByMatchId) throws IOException {
+        List<CofCard> cards = new ArrayList<>();
+        for (Map.Entry<String, ResourcePathMigration.LegacyImportedCard> entry : importedByKey.entrySet()) {
+            cards.add(toCard(deckId, entry.getValue(), pmvPkByMatchId));
+        }
+        if (!cards.isEmpty()) {
             return cards;
         }
-        try (Stream<Path> pmvDirs = Files.list(deckDir)) {
-            for (Path pmvDir : pmvDirs.filter(Files::isDirectory).toList()) {
+        Path legacyCardsDir = libraryDir.resolve("cards");
+        if (Files.isDirectory(legacyCardsDir)) {
+            try (Stream<Path> legacyFiles = Files.list(legacyCardsDir)) {
+                for (Path cardPath : legacyFiles.filter(Files::isRegularFile).toList()) {
+                    CofCard card = buildCardFromLegacyPath(cardPath, deckId, importedByKey, pmvPkByMatchId);
+                    if (card != null) {
+                        cards.add(card);
+                    }
+                }
+            }
+        }
+        try (Stream<Path> entries = Files.list(libraryDir)) {
+            for (Path pmvDir : entries.filter(Files::isDirectory).toList()) {
                 String dirName = pmvDir.getFileName().toString();
                 if ("cards".equals(dirName)) {
                     continue;
                 }
-                int pmvId;
+                int matchId;
                 try {
-                    pmvId = Integer.parseInt(dirName);
+                    matchId = Integer.parseInt(dirName);
                 } catch (NumberFormatException ex) {
                     continue;
                 }
                 try (Stream<Path> cardFiles = Files.list(pmvDir)) {
                     for (Path cardPath : cardFiles.filter(Files::isRegularFile).toList()) {
-                        CofCard card = buildCardFromFile(cardPath, deckId, pmvId, migratedByKey);
+                        CofCard card = buildCardFromLegacyPath(cardPath, deckId, importedByKey, pmvPkByMatchId, matchId);
                         if (card != null) {
                             cards.add(card);
                         }
@@ -190,66 +230,65 @@ public class DeckCatalogImportService {
                 }
             }
         }
-        Path legacyDir = deckDir.resolve("cards");
-        if (cards.isEmpty() && Files.isDirectory(legacyDir)) {
-            try (Stream<Path> legacyFiles = Files.list(legacyDir)) {
-                for (Path cardPath : legacyFiles.filter(Files::isRegularFile).toList()) {
-                    String fileName = cardPath.getFileName().toString();
-                    Matcher matcher = CARD_FILE.matcher(fileName);
-                    if (!matcher.matches()) {
-                        continue;
-                    }
-                    int pmvId = Integer.parseInt(matcher.group(1));
-                    CofCard card = buildCardFromFile(cardPath, deckId, pmvId, migratedByKey);
-                    if (card != null) {
-                        cards.add(card);
-                    }
-                }
-            }
-        }
         return cards;
     }
 
-    private CofCard buildCardFromFile(
+    private CofCard buildCardFromLegacyPath(
             Path cardPath,
             long deckId,
-            int pmvId,
-            Map<String, ResourcePathMigration.MigratedCard> migratedByKey) {
+            Map<String, ResourcePathMigration.LegacyImportedCard> importedByKey,
+            Map<Integer, Long> pmvPkByMatchId) throws IOException {
+        return buildCardFromLegacyPath(cardPath, deckId, importedByKey, pmvPkByMatchId, -1);
+    }
+
+    private CofCard buildCardFromLegacyPath(
+            Path cardPath,
+            long deckId,
+            Map<String, ResourcePathMigration.LegacyImportedCard> importedByKey,
+            Map<Integer, Long> pmvPkByMatchId,
+            int defaultMatchId) throws IOException {
         String fileName = cardPath.getFileName().toString();
         Matcher matcher = CARD_FILE.matcher(fileName);
         String shot;
-        String ext;
+        int matchId = defaultMatchId;
         if (matcher.matches()) {
-            if (pmvId != Integer.parseInt(matcher.group(1))) {
-                pmvId = Integer.parseInt(matcher.group(1));
-            }
+            matchId = Integer.parseInt(matcher.group(1));
             shot = matcher.group(2).toLowerCase(Locale.ROOT);
-            ext = matcher.group(3).toLowerCase(Locale.ROOT);
         } else {
             Matcher shotMatcher = SHOT_FILE.matcher(fileName);
-            if (!shotMatcher.matches()) {
+            if (!shotMatcher.matches() || matchId < 0) {
                 return null;
             }
             shot = shotMatcher.group(1).toLowerCase(Locale.ROOT);
-            ext = shotMatcher.group(2).toLowerCase(Locale.ROOT);
         }
-        if ("jpeg".equalsIgnoreCase(ext)) {
-            ext = "jpg";
+        String key = matchId + ":" + shot;
+        ResourcePathMigration.LegacyImportedCard imported = importedByKey.get(key);
+        if (imported == null) {
+            ResourcePathMigration.StoredCardImage stored = pathMigration.storeCardFile(cardPath);
+            imported = new ResourcePathMigration.LegacyImportedCard(
+                    deckId, matchId, shot, stored.fileName(), stored.imageUrl());
+            importedByKey.put(key, imported);
         }
-        String key = pmvId + ":" + shot;
-        ResourcePathMigration.MigratedCard migrated = migratedByKey.get(key);
+        return toCard(deckId, imported, pmvPkByMatchId);
+    }
+
+    private static CofCard toCard(
+            long deckId,
+            ResourcePathMigration.LegacyImportedCard imported,
+            Map<Integer, Long> pmvPkByMatchId) {
+        Long pmvPk = pmvPkByMatchId.get(imported.matchId());
+        if (pmvPk == null) {
+            return null;
+        }
         CofCard card = new CofCard();
+        card.deckId = deckId;
+        card.pmvId = pmvPk;
+        card.shot = imported.shot();
+        card.fileName = imported.fileName();
+        card.imageUrl = imported.imageUrl();
+        card.cardUid = deckId + "/" + imported.matchId() + "/" + imported.shot();
         card.reviewStatus = ReviewStatus.APPROVED;
         card.submitterClientId = null;
-        card.deckId = deckId;
-        card.pmvId = pmvId;
-        card.cardId = shot;
-        card.shot = shot;
-        card.fileName = migrated != null ? migrated.fileName() : fileName;
-        card.imageUrl = migrated != null
-                ? migrated.imageUrl()
-                : ResourcePathMigration.cardUrl(deckId, pmvId, shot, ext);
-        card.cardUid = deckId + "/" + pmvId + "/" + shot;
         return card;
     }
 
@@ -267,44 +306,44 @@ public class DeckCatalogImportService {
             JsonNode entries = root.has("pmvs") ? root.get("pmvs") : root.get("entries");
             if (entries != null && entries.isArray()) {
                 for (JsonNode entry : entries) {
-                    int pmvId = entry.path("pmv_id").asInt(entry.path("pmvId").asInt(-1));
-                    if (pmvId < 0) {
+                    int matchId = entry.path("pmv_id").asInt(entry.path("pmvId").asInt(-1));
+                    if (matchId < 0) {
                         continue;
                     }
                     PmvEntry pmv = new PmvEntry();
-                    pmv.pmvId = pmvId;
-                    pmv.name = entry.path("name").asText("PMV " + pmvId);
+                    pmv.matchId = matchId;
+                    pmv.name = entry.path("name").asText("PMV " + matchId);
                     pmv.author = entry.path("author").asText(null);
                     pmv.description = entry.path("description").asText(null);
                     pmv.link = entry.path("link").asText(null);
                     data.pmvs.add(pmv);
-                    data.pmvNames.put(pmvId, pmv.name);
+                    data.pmvNames.put(matchId, pmv.name);
                 }
             }
         } else if (text.trim().startsWith("[")) {
             JsonNode array = objectMapper.readTree(text);
             for (JsonNode entry : array) {
-                int pmvId = entry.path("pmv_id").asInt(entry.path("pmvId").asInt(-1));
-                if (pmvId < 0) {
+                int matchId = entry.path("pmv_id").asInt(entry.path("pmvId").asInt(-1));
+                if (matchId < 0) {
                     continue;
                 }
                 PmvEntry pmv = new PmvEntry();
-                pmv.pmvId = pmvId;
-                pmv.name = entry.path("name").asText("PMV " + pmvId);
+                pmv.matchId = matchId;
+                pmv.name = entry.path("name").asText("PMV " + matchId);
                 data.pmvs.add(pmv);
-                data.pmvNames.put(pmvId, pmv.name);
+                data.pmvNames.put(matchId, pmv.name);
             }
         } else {
             for (String line : text.split("\\R")) {
                 int comma = line.indexOf(',');
                 if (comma > 0) {
-                    int pmvId = Integer.parseInt(line.substring(0, comma).trim());
+                    int matchId = Integer.parseInt(line.substring(0, comma).trim());
                     String name = line.substring(comma + 1).trim();
                     PmvEntry pmv = new PmvEntry();
-                    pmv.pmvId = pmvId;
+                    pmv.matchId = matchId;
                     pmv.name = name;
                     data.pmvs.add(pmv);
-                    data.pmvNames.put(pmvId, name);
+                    data.pmvNames.put(matchId, name);
                 }
             }
         }
@@ -334,7 +373,7 @@ public class DeckCatalogImportService {
     }
 
     private static final class PmvEntry {
-        int pmvId;
+        int matchId;
         String name;
         String author;
         String description;

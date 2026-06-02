@@ -18,14 +18,16 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Resolves legacy card URLs ({@code /cards/lib/cards/5a.png}) and numeric deck ids
- * ({@code /cards/1/5/a.jpg}) to on-disk folders under {@code cof-resource/cards/}.
+ * Resolves legacy nested card URLs ({@code /cards/1/5/a.jpg}) and folder-based layouts.
+ * Flat UUID card files ({@code /cards/{uuid}.jpg}) and deck backs ({@code /cards/backs/{id}.jpg})
+ * are served directly from {@code cof-resource/cards/}.
  */
 public class DeckCardResourceResolver extends PathResourceResolver {
 
     private static final Pattern LEGACY_CARD = Pattern.compile("^[^/]+/cards/(\\d+)([a-z])\\.(png|jpe?g)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern CANONICAL = Pattern.compile("^(\\d+|[^/]+)/(\\d+)/([a-z])\\.(png|jpe?g)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern LEGACY_BACK = Pattern.compile("^[^/]+/back\\.png$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NUMERIC_DECK_BACK = Pattern.compile("^(\\d+)/back\\.(png|jpe?g)$", Pattern.CASE_INSENSITIVE);
 
     private final Path cardsRoot;
     private final Map<Long, String> deckFolderById = new HashMap<>();
@@ -74,6 +76,13 @@ public class DeckCardResourceResolver extends PathResourceResolver {
         }
         if (LEGACY_BACK.matcher(path).matches()) {
             return findBackInAnyDeck();
+        }
+        Matcher numericBack = NUMERIC_DECK_BACK.matcher(path);
+        if (numericBack.matches()) {
+            String candidate = "backs/" + numericBack.group(1) + ".jpg";
+            if (existsOnDisk(candidate)) {
+                return candidate;
+            }
         }
 
         Matcher canonical = CANONICAL.matcher(path);

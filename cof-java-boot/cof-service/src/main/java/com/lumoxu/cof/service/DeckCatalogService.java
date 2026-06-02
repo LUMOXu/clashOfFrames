@@ -194,7 +194,7 @@ public class DeckCatalogService {
 
     public Map<String, Object> findApprovedPmvByMatchId(int matchId) {
         for (CofDeckPmv pmv : deckPmvMapper.selectList(null)) {
-            if (pmv.pmvId == null || pmv.pmvId != matchId) {
+            if (pmv.matchId == null || pmv.matchId != matchId) {
                 continue;
             }
             CofDeck deck = pmv.deckId != null ? deckMapper.selectById(pmv.deckId) : null;
@@ -206,7 +206,7 @@ public class DeckCatalogService {
             }
             Map<String, Object> entry = new HashMap<>();
             entry.put("deckId", pmv.deckId);
-            entry.put("pmvId", pmv.pmvId);
+            entry.put("pmvId", pmv.matchId);
             entry.put("name", pmv.name);
             entry.put("author", pmv.author);
             entry.put("description", pmv.description);
@@ -230,7 +230,8 @@ public class DeckCatalogService {
             }
             Map<String, Object> entry = new HashMap<>();
             entry.put("deckId", pmv.deckId);
-            entry.put("pmvId", pmv.pmvId);
+            entry.put("pmvId", pmv.matchId);
+            entry.put("pmvRowId", pmv.pmvId);
             entry.put("name", pmv.name);
             entry.put("author", pmv.author);
             entry.put("description", pmv.description);
@@ -354,9 +355,13 @@ public class DeckCatalogService {
     }
 
     private CardLibraryDto assembleBundle(CofDeck deck, String viewerClientId) {
-        Map<Integer, String> pmvNames = deckPmvMapper.listByDeckId(deck.id).stream()
+        List<CofDeckPmv> visiblePmvs = deckPmvMapper.listByDeckId(deck.id).stream()
                 .filter(p -> ReviewStatus.isVisibleToUser(p.reviewStatus, p.submitterClientId, viewerClientId))
-                .collect(Collectors.toMap(p -> p.pmvId, p -> p.name, (a, b) -> a));
+                .toList();
+        Map<Integer, String> pmvNames = visiblePmvs.stream()
+                .collect(Collectors.toMap(p -> p.matchId, p -> p.name, (a, b) -> a));
+        Map<Long, Integer> matchIdByPmvPk = visiblePmvs.stream()
+                .collect(Collectors.toMap(p -> p.pmvId, p -> p.matchId));
         CardLibraryDto dto = toSummary(deck);
         dto.reviewStatus = deck.reviewStatus;
         dto.submitterClientId = deck.submitterClientId;
@@ -364,32 +369,29 @@ public class DeckCatalogService {
             if (!ReviewStatus.isVisibleToUser(row.reviewStatus, row.submitterClientId, viewerClientId)) {
                 continue;
             }
-            if (!pmvNames.containsKey(row.pmvId)) {
+            Integer matchId = matchIdByPmvPk.get(row.pmvId);
+            if (matchId == null || !pmvNames.containsKey(matchId)) {
                 continue;
             }
             CardLibraryDto.CardDto card = new CardLibraryDto.CardDto();
             card.id = row.cardUid;
             card.libraryId = publicLibraryId(deck);
             card.fileName = row.fileName;
-            card.pmvId = row.pmvId;
-            card.pmvName = pmvNames.getOrDefault(row.pmvId, "PMV " + row.pmvId);
+            card.pmvId = matchId;
+            card.pmvName = pmvNames.getOrDefault(matchId, "PMV " + matchId);
             card.shot = row.shot;
             card.imageUrl = row.imageUrl;
             card.backUrl = deck.backUrl;
             card.approvedForPlay = isDeckPlayable(deck)
                     && ReviewStatus.isApproved(row.reviewStatus)
-                    && ReviewStatus.isApproved(pmvReviewStatus(deck.id, row.pmvId));
+                    && ReviewStatus.isApproved(pmvReviewStatus(deck.id, matchId));
             dto.cards.add(card);
         }
         return dto;
     }
 
-    private String pmvReviewStatus(long deckId, int pmvId) {
-        CofDeckPmv pmv = deckPmvMapper.selectOne(
-                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<CofDeckPmv>()
-                        .eq("deck_id", deckId)
-                        .eq("pmv_id", pmvId)
-                        .last("LIMIT 1"));
+    private String pmvReviewStatus(long deckId, int matchId) {
+        CofDeckPmv pmv = deckPmvMapper.findByDeckIdAndMatchId(deckId, matchId);
         return pmv != null ? pmv.reviewStatus : ReviewStatus.PENDING;
     }
 

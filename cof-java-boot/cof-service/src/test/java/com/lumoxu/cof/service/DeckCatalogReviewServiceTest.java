@@ -78,7 +78,7 @@ class DeckCatalogReviewServiceTest {
         deck.enabled = false;
         when(cardMapper.selectById(99L)).thenAnswer(inv -> {
             CofCard c = approvedCard(7L, 2);
-            c.id = 99L;
+            c.cardId = 99L;
             return c;
         });
         when(deckMapper.selectById(7L)).thenReturn(deck);
@@ -123,22 +123,23 @@ class DeckCatalogReviewServiceTest {
 
     private static CofDeckPmv approvedPmv(long deckId, int matchId) {
         CofDeckPmv pmv = new CofDeckPmv();
-        pmv.id = 10L;
+        pmv.pmvId = 10L;
         pmv.deckId = deckId;
-        pmv.pmvId = matchId;
+        pmv.matchId = matchId;
         pmv.name = "PMV";
         pmv.reviewStatus = ReviewStatus.APPROVED;
         return pmv;
     }
 
-    private static CofCard approvedCard(long deckId, int pmvMatchId) {
+    private static CofCard approvedCard(long deckId, int matchId) {
+        CofDeckPmv pmv = approvedPmv(deckId, matchId);
         CofCard card = new CofCard();
-        card.id = 1L;
+        card.cardId = 1L;
         card.deckId = deckId;
-        card.pmvId = pmvMatchId;
+        card.pmvId = pmv.pmvId;
         card.shot = "a";
         card.reviewStatus = ReviewStatus.APPROVED;
-        card.cardUid = deckId + "/" + pmvMatchId + "/a";
+        card.cardUid = deckId + "/" + matchId + "/a";
         return card;
     }
 }

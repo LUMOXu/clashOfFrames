@@ -3,6 +3,7 @@ package com.lumoxu.cof.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumoxu.cof.domain.entity.CofCard;
 import com.lumoxu.cof.domain.entity.CofDeck;
+import com.lumoxu.cof.domain.entity.CofDeckPmv;
 import com.lumoxu.cof.domain.mapper.CofCardMapper;
 import com.lumoxu.cof.domain.mapper.CofDeckMapper;
 import com.lumoxu.cof.domain.mapper.CofDeckPmvMapper;
@@ -14,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,7 +38,7 @@ class DeckCatalogImportServiceTest {
     private DeckCatalogService deckCatalogService;
 
     @Test
-    void importsDeckFromManifestAndMovesCards(@TempDir Path temp) throws Exception {
+    void importsDeckFromManifestAndStoresFlatCardImages(@TempDir Path temp) throws Exception {
         Path deckDir = temp.resolve("cards").resolve("demo-deck");
         Files.createDirectories(deckDir.resolve("cards"));
         Files.writeString(deckDir.resolve("manifest.json"), """
@@ -51,8 +53,14 @@ class DeckCatalogImportServiceTest {
             deck.id = 1L;
             return 1;
         }).when(deckMapper).insert(any(CofDeck.class));
+        final long[] nextPmvPk = {1L};
+        doAnswer(invocation -> {
+            CofDeckPmv pmv = invocation.getArgument(0);
+            pmv.pmvId = nextPmvPk[0]++;
+            return 1;
+        }).when(deckPmvMapper).insert(any(CofDeckPmv.class));
 
-        ResourcePathMigration migration = new ResourcePathMigration();
+        ResourcePathMigration migration = new ResourcePathMigration(temp.toString());
         DeckCatalogImportService importer = new DeckCatalogImportService(
                 new ObjectMapper(),
                 temp.toString(),
@@ -66,6 +74,14 @@ class DeckCatalogImportServiceTest {
         assertEquals(1, imported);
         verify(deckMapper, atLeastOnce()).insert(any(CofDeck.class));
         verify(cardMapper, atLeastOnce()).insert(any(CofCard.class));
-        assertTrue(Files.exists(temp.resolve("cards").resolve("1").resolve("1").resolve("a.jpg")));
+        Path flatCardsDir = temp.resolve("cards");
+        try (Stream<Path> files = Files.list(flatCardsDir)) {
+            long flatImageCount = files
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().endsWith(".jpg"))
+                    .count();
+            assertTrue(flatImageCount >= 1, "expected at least one flat card image");
+        }
+        assertTrue(Files.exists(temp.resolve("cards").resolve("backs").resolve("1.jpg")));
     }
 }
