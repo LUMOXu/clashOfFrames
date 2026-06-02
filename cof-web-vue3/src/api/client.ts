@@ -35,6 +35,14 @@ export function createApiClient(baseURL = API_BASE): AxiosInstance {
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // FormData 必须由浏览器设置 multipart boundary；全局 application/json 会导致上传 500
+    if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+      if (config.headers) {
+        const headers = config.headers as Record<string, unknown>;
+        delete headers["Content-Type"];
+        delete headers["content-type"];
+      }
+    }
     return config;
   });
 
