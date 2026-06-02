@@ -250,25 +250,52 @@ def run() -> int:
             page.wait_for_selector("button.bell", timeout=120000)
             page.wait_for_timeout(3000)
 
-            for i in range(12):
+            game_id = ""
+            if "gameId=" in page.url:
+                game_id = page.url.split("gameId=", 1)[1].split("&")[0]
+            initial_pc = 0
+            if game_id:
+                try:
+                    g = api("GET", f"/games/{game_id}", token=live_token)
+                    initial_pc = int(g.get("game", {}).get("playCount") or 0)
+                except Exception as ex:
+                    log(f"game poll warn: {ex}")
+
+            human_plays = 0
+            saw_bot_play = False
+            max_pc = initial_pc
+            for i in range(50):
                 play_btn = page.locator("button.draw-stack:not([disabled])").first
                 if play_btn.count() and play_btn.is_visible():
                     play_btn.click()
-                    log(f"play click #{i + 1}")
-                page.wait_for_timeout(2000)
-                bell = page.locator("button.bell:not([disabled])")
-                if bell.count():
+                    human_plays += 1
+                    log(f"human play click #{human_plays}")
+                    page.wait_for_timeout(2000)
+                if game_id:
                     try:
-                        bell.click(timeout=500)
-                        log("bell click")
+                        g = api("GET", f"/games/{game_id}", token=live_token)
+                        pc = int(g.get("game", {}).get("playCount") or 0)
+                        if pc > max_pc:
+                            max_pc = pc
+                            log(f"playCount={pc}")
+                        if pc >= initial_pc + 2:
+                            saw_bot_play = True
                     except Exception:
                         pass
-                page.wait_for_timeout(1500)
-                status = page.locator(".game-hud, .table-area").first
-                if status.count():
-                    pass
+                page.wait_for_timeout(1200)
+                if human_plays >= 1 and saw_bot_play:
+                    log("human played and playCount advanced — bot handoff ok")
+                    break
 
-            page.wait_for_timeout(5000)
+            if not saw_bot_play and max_pc > initial_pc + 1:
+                saw_bot_play = True
+                log(f"playCount advanced {initial_pc} -> {max_pc} without strict human/bot split")
+            if not saw_bot_play:
+                raise RuntimeError(
+                    f"game did not progress (playCount {initial_pc} -> {max_pc}, humanPlays={human_plays})"
+                )
+
+            page.wait_for_timeout(4000)
             page.screenshot(path=str(ARTIFACT_DIR / "game-final.png"), full_page=True)
             log("game session captured")
 

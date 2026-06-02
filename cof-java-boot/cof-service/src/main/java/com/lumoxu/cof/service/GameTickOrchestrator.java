@@ -45,12 +45,18 @@ public class GameTickOrchestrator {
     public void tick() {
         long now = System.currentTimeMillis();
         for (String roomId : redis.setMembers(RedisKeys.ROOM_INDEX)) {
-            roomService.get(roomId).ifPresent(room -> {
-                if (roomMaintenanceService.maintain(room, now)) {
-                    return;
-                }
-                tickRoom(room, now);
-            });
+            try {
+                roomService.get(roomId).ifPresent(room -> {
+                    if (roomMaintenanceService.maintain(room, now)) {
+                        return;
+                    }
+                    tickRoom(room, now);
+                });
+            } catch (Exception ex) {
+                // 单房间异常不影响其他房间 tick
+                org.slf4j.LoggerFactory.getLogger(GameTickOrchestrator.class)
+                        .warn("tick failed for room {}: {}", roomId, ex.getMessage());
+            }
         }
     }
 

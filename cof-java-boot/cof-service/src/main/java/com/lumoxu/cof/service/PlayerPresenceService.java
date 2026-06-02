@@ -54,8 +54,9 @@ public class PlayerPresenceService {
             return false;
         }
         Optional<PlayerPresence> presence = get(clientId);
+        // 尚无 presence（刚建房/仅 REST 未走 WS）不应视为长期离线，否则首 tick 会解散房间、人机永不推进
         if (presence.isEmpty()) {
-            return true;
+            return false;
         }
         PlayerPresence record = presence.get();
         if (record.connected) {

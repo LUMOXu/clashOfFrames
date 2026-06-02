@@ -82,6 +82,15 @@ class RoomMaintenanceServiceTest {
     }
 
     @Test
+    void keepsRoomWhenHostHasNoPresenceRecordYet() {
+        when(metaService.listLibraries()).thenReturn(List.of());
+        RoomState room = roomService.createRoom("host-1", "Host", GameSettings.defaultSettings(), List.of());
+        assertFalse(roomMaintenanceService.shouldAutoDisband(room, System.currentTimeMillis()));
+        assertFalse(roomMaintenanceService.maintain(room, System.currentTimeMillis()));
+        assertTrue(roomService.get(room.id).isPresent());
+    }
+
+    @Test
     void keepsRoomWhenOneHumanIsStillOnline() {
         when(metaService.listLibraries()).thenReturn(List.of());
         RoomState room = roomService.createRoom("host-1", "Host", GameSettings.defaultSettings(), List.of());

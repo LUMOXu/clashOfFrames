@@ -63,6 +63,7 @@ public class RoomService {
         room.hostId = hostId;
         room.players.add(hostId);
         rememberUsername(room, hostId, hostUsername);
+        playerPresenceService.touchConnected(hostId);
         room.settings = normalizeSettings(settings);
         room.createdAt = System.currentTimeMillis();
         if (computerIds != null) {

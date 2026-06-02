@@ -110,7 +110,12 @@ public class UserStatsService {
             if (timeline.frames != null && !timeline.frames.isEmpty()) {
                 match.replayJson = objectMapper.writeValueAsString(timeline);
             }
-            matchHistoryMapper.insert(match);
+            try {
+                matchHistoryMapper.insert(match);
+            } catch (org.springframework.dao.DuplicateKeyException dup) {
+                // 重复 tick/重试写入同一局战绩时不应拖垮游戏 tick
+                return false;
+            }
 
             for (GameSummary.SummaryPlayer entry : summary.players) {
                 applySummaryToPlayer(entry, summary);
