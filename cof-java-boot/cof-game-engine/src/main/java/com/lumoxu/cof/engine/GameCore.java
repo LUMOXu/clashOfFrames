@@ -460,9 +460,12 @@ public final class GameCore {
         game.turnStartedAt = now;
         game.turnAvailableAt = now + availableDelay;
         Player current = game.players.get(game.turnIndex);
-        long timeout = manualOnly && current != null && current.connected
-                ? MANUAL_TURN_TIMEOUT_MS
-                : turnTimeoutMs(game);
+        // 仅真人连网时使用超长出牌期限；人机仍用 8s 自动出牌兜底，避免按铃后卡死
+        boolean manualHumanTurn = manualOnly
+                && current != null
+                && current.connected
+                && !current.isComputer;
+        long timeout = manualHumanTurn ? MANUAL_TURN_TIMEOUT_MS : turnTimeoutMs(game);
         game.turnDeadlineAt = now + timeout;
     }
 

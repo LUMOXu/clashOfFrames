@@ -19,14 +19,45 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
 @Service
 public class GameRuntimeService {
 
     private final JsonRedisOps redis;
+    private final ConcurrentHashMap<String, ReentrantLock> gameLocks = new ConcurrentHashMap<>();
 
     public GameRuntimeService(JsonRedisOps redis) {
         this.redis = redis;
+    }
+
+    public void runWithGameLock(String gameId, Runnable action) {
+        if (gameId == null || gameId.isBlank()) {
+            action.run();
+            return;
+        }
+        ReentrantLock lock = gameLocks.computeIfAbsent(gameId, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
+            action.run();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public <T> T callWithGameLock(String gameId, Supplier<T> action) {
+        if (gameId == null || gameId.isBlank()) {
+            return action.get();
+        }
+        ReentrantLock lock = gameLocks.computeIfAbsent(gameId, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
+            return action.get();
+        } finally {
+            lock.unlock();
+        }
     }
 
     public Game createGame(Room room, List<Player> players, List<Card> cards) {
@@ -49,23 +80,27 @@ public class GameRuntimeService {
     }
 
     public PublicGame playCard(String gameId, String clientId) {
-        GameStateBundle bundle = getRequired(gameId);
-        ActionResult result = GameCore.performPlayCard(bundle.game, clientId, System.currentTimeMillis(), false);
-        if (!result.ok) {
-            throw new CofException(ErrorCode.CONFLICT, result.error);
-        }
-        save(bundle.game);
-        return toPublicGame(bundle.game);
+        return callWithGameLock(gameId, () -> {
+            GameStateBundle bundle = getRequired(gameId);
+            ActionResult result = GameCore.performPlayCard(bundle.game, clientId, System.currentTimeMillis(), false);
+            if (!result.ok) {
+                throw new CofException(ErrorCode.CONFLICT, result.error);
+            }
+            save(bundle.game);
+            return toPublicGame(bundle.game);
+        });
     }
 
     public PublicGame ringBell(String gameId, String clientId) {
-        GameStateBundle bundle = getRequired(gameId);
-        ActionResult result = GameCore.performRingBell(bundle.game, clientId, System.currentTimeMillis(), Math::random);
-        if (!result.ok) {
-            throw new CofException(ErrorCode.CONFLICT, result.error);
-        }
-        save(bundle.game);
-        return toPublicGame(bundle.game);
+        return callWithGameLock(gameId, () -> {
+            GameStateBundle bundle = getRequired(gameId);
+            ActionResult result = GameCore.performRingBell(bundle.game, clientId, System.currentTimeMillis(), Math::random);
+            if (!result.ok) {
+                throw new CofException(ErrorCode.CONFLICT, result.error);
+            }
+            save(bundle.game);
+            return toPublicGame(bundle.game);
+        });
     }
 
     public PublicGame toPublicGame(Game game) {

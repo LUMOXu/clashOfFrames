@@ -21,8 +21,23 @@ public class ComputerPlayerAdvanceService {
         this.computerPlayerService = computerPlayerService;
     }
 
+    private static final int MAX_CURRENT_COMPUTER_STEPS_PER_TICK = 16;
+
     public ComputerTickOutcome advance(Game game, long now) {
+        Player current = game.players.isEmpty() ? null : game.players.get(game.turnIndex);
+        if (current != null && current.isComputer && !current.eliminated && !current.exited) {
+            ComputerPlayerDto profile = resolveProfile(current);
+            if (profile != null) {
+                ComputerTickOutcome fast = advanceCurrentComputerSteps(game, current, profile, now);
+                if (fast.played || fast.rang) {
+                    return fast;
+                }
+            }
+        }
         for (Player player : game.players) {
+            if (player == current) {
+                continue;
+            }
             if (!player.isComputer || player.eliminated || player.exited) {
                 continue;
             }
@@ -33,6 +48,27 @@ public class ComputerPlayerAdvanceService {
             ComputerTickOutcome step = advanceOne(game, player, profile, now);
             if (step.played || step.rang) {
                 return ComputerTickOutcome.of(true, step.played, step.rang);
+            }
+        }
+        return ComputerTickOutcome.none();
+    }
+
+    /**
+     * 当前回合人机在同一 tick 内连续推进状态机（wait→analysis→next→play），避免每 100ms 只走一步导致长时间无出牌。
+     */
+    private ComputerTickOutcome advanceCurrentComputerSteps(
+            Game game, Player player, ComputerPlayerDto profile, long now) {
+        for (int step = 0; step < MAX_CURRENT_COMPUTER_STEPS_PER_TICK; step++) {
+            String before = player.computerState != null ? player.computerState.name : "";
+            Long beforeActionAt = player.computerState != null ? player.computerState.actionAt : null;
+            ComputerTickOutcome outcome = advanceOne(game, player, profile, now);
+            if (outcome.played || outcome.rang) {
+                return outcome;
+            }
+            String after = player.computerState != null ? player.computerState.name : "";
+            Long afterActionAt = player.computerState != null ? player.computerState.actionAt : null;
+            if (before.equals(after) && java.util.Objects.equals(beforeActionAt, afterActionAt)) {
+                break;
             }
         }
         return ComputerTickOutcome.none();

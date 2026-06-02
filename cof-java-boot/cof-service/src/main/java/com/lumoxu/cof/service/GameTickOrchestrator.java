@@ -69,57 +69,60 @@ public class GameTickOrchestrator {
             }
             return;
         }
-        var bundleOpt = gameRuntimeService.get(room.gameId);
-        if (bundleOpt.isEmpty()) {
-            return;
-        }
-        Game game = bundleOpt.get().game;
-
-        if ("finished".equals(game.status)) {
-            if (userStatsService.recordFinishedGame(game)) {
-                gameRuntimeService.save(game);
+        String gameId = room.gameId;
+        gameRuntimeService.runWithGameLock(gameId, () -> {
+            var bundleOpt = gameRuntimeService.get(gameId);
+            if (bundleOpt.isEmpty()) {
+                return;
             }
-            if (!"finished".equals(room.status)) {
-                room.status = "finished";
-                room.lastWinnerId = game.winnerId;
+            Game game = bundleOpt.get().game;
+
+            if ("finished".equals(game.status)) {
+                if (userStatsService.recordFinishedGame(game)) {
+                    gameRuntimeService.save(game);
+                }
+                if (!"finished".equals(room.status)) {
+                    room.status = "finished";
+                    room.lastWinnerId = game.winnerId;
+                }
+                ContinueRoomResult continueResult = gameRuntimeService.maybeReturnToWaiting(room, game, now);
+                if (continueResult.changed()) {
+                    roomService.save(room);
+                    PublicGame publicGame = gameRuntimeService.toPublicGame(game);
+                    broadcaster.ifPresent(b -> b.onContinueStateChanged(room, publicGame));
+                }
+                return;
             }
-            ContinueRoomResult continueResult = gameRuntimeService.maybeReturnToWaiting(room, game, now);
-            if (continueResult.changed()) {
-                roomService.save(room);
-                PublicGame publicGame = gameRuntimeService.toPublicGame(game);
-                broadcaster.ifPresent(b -> b.onContinueStateChanged(room, publicGame));
+
+            if (!"playing".equals(game.status)) {
+                return;
             }
-            return;
-        }
 
-        if (!"playing".equals(game.status)) {
-            return;
-        }
+            String statusBefore = game.status;
+            ComputerTickOutcome computerOutcome = computerAdvanceService.advance(game, now);
+            boolean changed = computerOutcome.played || computerOutcome.rang;
+            ComputerTickOutcome broadcastOutcome = computerOutcome;
 
-        String statusBefore = game.status;
-        ComputerTickOutcome computerOutcome = computerAdvanceService.advance(game, now);
-        boolean changed = computerOutcome.played || computerOutcome.rang;
-        ComputerTickOutcome broadcastOutcome = computerOutcome;
+            if (!changed && applyTurnTimeoutIfDue(game, now)) {
+                changed = true;
+                broadcastOutcome = ComputerTickOutcome.of(true, true, false);
+            }
 
-        if (!changed && applyTurnTimeoutIfDue(game, now)) {
-            changed = true;
-            broadcastOutcome = ComputerTickOutcome.of(true, true, false);
-        }
+            // 人机状态机（等待/分析/延迟）也须落库，否则每 tick 从 Redis 读到旧状态会卡死
+            gameRuntimeService.save(game);
 
-        // 人机状态机（等待/分析/延迟）也须落库，否则每 tick 从 Redis 读到旧状态会卡死
-        gameRuntimeService.save(game);
+            if (!changed) {
+                return;
+            }
 
-        if (!changed) {
-            return;
-        }
-
-        if ("finished".equals(game.status)) {
-            userStatsService.recordFinishedGame(game);
-        }
-        PublicGame publicGame = gameRuntimeService.toPublicGame(game);
-        ComputerTickOutcome outcome = broadcastOutcome;
-        outcome.justFinished = !"finished".equals(statusBefore) && "finished".equals(game.status);
-        broadcaster.ifPresent(b -> b.onGameUpdated(room, publicGame, outcome));
+            if ("finished".equals(game.status)) {
+                userStatsService.recordFinishedGame(game);
+            }
+            PublicGame publicGame = gameRuntimeService.toPublicGame(game);
+            ComputerTickOutcome outcome = broadcastOutcome;
+            outcome.justFinished = !"finished".equals(statusBefore) && "finished".equals(game.status);
+            broadcaster.ifPresent(b -> b.onGameUpdated(room, publicGame, outcome));
+        });
     }
 
     /**
