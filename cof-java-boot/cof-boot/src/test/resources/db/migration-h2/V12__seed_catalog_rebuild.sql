@@ -8,3 +8,8 @@ INSERT INTO cof_card (id, deck_id, pmv_id, name, image_url, review_status, creat
 VALUES
   (1, 1, 1, 'Card A', '/cards/test-a.jpg', 'approved', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   (2, 1, 1, 'Card B', '/cards/test-b.jpg', 'approved', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Explicit ids above do not advance H2 identity; restart so submissions get id > 2.
+ALTER TABLE cof_deck ALTER COLUMN id RESTART WITH 100;
+ALTER TABLE cof_pmv ALTER COLUMN id RESTART WITH 100;
+ALTER TABLE cof_card ALTER COLUMN id RESTART WITH 100;
