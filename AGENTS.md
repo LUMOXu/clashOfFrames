@@ -57,3 +57,10 @@ Open http://localhost:9001
 - Deck import on first insert requires `back_url` NOT NULL — fixed in `DeckCatalogImportService` (placeholder then update after id).
 - **User-submitted decks**: public catalog (`GET /meta/card-libraries`) and match pools only include rows with `cof_deck.enabled = TRUE` and `review_status = 'approved'` (plus approved PMVs/cards). After DB review via `deploy/review_submissions.py`, call `POST /api/v1/admin/catalog/reconcile` (or let the script do it) so Redis `cof:cache:card-libraries` is busted. Prefer `ad <deck_id>` to approve a whole deck; partial `ap`/`ac` auto-enables the deck when all PMVs/cards are approved.
 - `feature-dyu` may have failing unit tests and incomplete game logic (see latest commit message).
+
+### Production (120.53.245.110)
+
+- Web **:9001** (nginx → `cof-web-vue3/dist`), API **:9002** (`cof-boot.service`), repo **`/opt/cof-java`**, branch **`feature-dyu`**.
+- SSH from Cursor Cloud VM: `ssh -i ~/.ssh/id_ed25519_cof_deploy root@120.53.245.110` or `ssh cof-prod` (see VM `~/.ssh/config`).
+- Deploy frontend only: `cd /opt/cof-java && git fetch && git reset --hard origin/feature-dyu && cd cof-web-vue3 && npm run build` (no backend restart required for static assets).
+- **Do not** run `git clean -fd` under `/opt/cof-java/cof-resource` — uncommitted card images may live only on disk.
