@@ -36,7 +36,8 @@ const pmvDescription = ref("");
 const pmvLink = ref("");
 const pmvSearch = ref("");
 
-const selectedPmvId = ref<number | "">("");
+/** 与原生 <select> 一致使用字符串，避免 number 绑定导致选项无法选中 */
+const selectedPmvId = ref("");
 const cardName = ref("");
 const cardDescription = ref("");
 
@@ -65,17 +66,46 @@ function resolveCropRef(
 const tabDeck = computed(() => myDecks.value.find((d) => String(d.id) === activeTab.value));
 const activeDeckId = computed(() => tabDeck.value?.id ?? null);
 
-const filteredPickerPmvs = computed(() => {
+/** 第 4 步上传区卡组选择，与下方「我的提交」标签双向同步 */
+const uploadDeckId = computed({
+  get: () => activeTab.value,
+  set: (value: string) => {
+    activeTab.value = value;
+  },
+});
+
+function pmvRowId(pmv: SubmissionPmv): number {
+  const id = pmv.id ?? pmv.pmvId;
+  return typeof id === "number" && Number.isFinite(id) ? id : NaN;
+}
+
+const sortedPickerPmvs = computed(() =>
+  pickerPmvs.value
+    .filter((row) => Number.isFinite(pmvRowId(row)))
+    .sort((a, b) =>
+      String(a.name ?? "").localeCompare(String(b.name ?? ""), undefined, { sensitivity: "base" }),
+    ),
+);
+
+/** 仅用于第 3 步 PMV 索引表，不影响上传卡牌的下拉选项 */
+const filteredPmvIndexRows = computed(() => {
   const q = pmvSearch.value.trim().toLocaleLowerCase();
-  let list = pickerPmvs.value.slice();
+  let list = sortedPickerPmvs.value;
   if (q) {
     list = list.filter((row) =>
-      [row.id, row.name, row.author].some((value) =>
+      [pmvRowId(row), row.name, row.author].some((value) =>
         String(value ?? "").toLocaleLowerCase().includes(q),
       ),
     );
   }
-  return list.sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? ""), undefined, { sensitivity: "base" }));
+  return list;
+});
+
+const pmvSelectDisabledReason = computed((): string | null => {
+  if (!myDecks.value.length) return "请先在第 1 步创建卡组。";
+  if (!uploadDeckId.value) return "请先选择要上传到的卡组。";
+  if (!sortedPickerPmvs.value.length) return "请先在第 3 步创建 PMV，或等待已有 PMV 审核通过。";
+  return null;
 });
 
 function pmvOptionLabel(pmv: SubmissionPmv): string {
@@ -256,14 +286,16 @@ function cardEffectiveLabel(deck: SubmissionDeck, card: SubmissionCard): string 
 }
 
 function beginCardUpload(): void {
-  if (!activeDeckId.value || selectedPmvId.value === "") {
+  if (!activeDeckId.value || !selectedPmvId.value) {
     return;
   }
   showCardUploader.value = true;
 }
 
 async function confirmCardUpload(event: MouseEvent): Promise<void> {
-  if (!activeDeckId.value || selectedPmvId.value === "") return;
+  if (!activeDeckId.value || !selectedPmvId.value) return;
+  const pmvId = Number(selectedPmvId.value);
+  if (!Number.isFinite(pmvId)) return;
   try {
     const crop = resolveCropRef(cardCropRef.value);
     if (!crop) {
@@ -271,7 +303,7 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
       return;
     }
     const { blob } = await crop.getCroppedBlob();
-    await addSubmissionCard(activeDeckId.value, Number(selectedPmvId.value), blob, {
+    await addSubmissionCard(activeDeckId.value, pmvId, blob, {
       name: cardName.value.trim() || undefined,
       description: cardDescription.value.trim() || undefined,
     });
@@ -359,10 +391,10 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
               </tr>
             </thead>
             <tbody>
-              <tr v-if="!filteredPickerPmvs.length">
+              <tr v-if="!filteredPmvIndexRows.length">
                 <td colspan="3">无匹配条目</td>
               </tr>
-              <tr v-for="row in filteredPickerPmvs" :key="row.id">
+              <tr v-for="row in filteredPmvIndexRows" :key="pmvRowId(row)">
                 <td>{{ row.name }}</td>
                 <td>{{ row.author || "—" }}</td>
                 <td>
@@ -378,13 +410,26 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
 
       <section class="submit-section">
         <h3 class="section-title">4. 上传卡牌 (1500×1080)</h3>
-        <p class="muted">选择牌组与 PMV，将截图关联到二者（选填名称与描述）。</p>
+        <p class="muted">选择要上传到的卡组与 PMV（与下方「我的提交」当前标签同步）。</p>
         <div class="form-grid">
           <label>
+            选择卡组 <span class="req">*</span>
+            <select v-model="uploadDeckId" :disabled="!myDecks.length">
+              <option value="">请选择卡组</option>
+              <option v-for="deck in myDecks" :key="deck.id" :value="String(deck.id)">
+                {{ deck.name }}
+              </option>
+            </select>
+          </label>
+          <label>
             选择 PMV <span class="req">*</span>
-            <select v-model="selectedPmvId" :disabled="!activeDeckId">
-              <option value="">请选择</option>
-              <option v-for="pmv in filteredPickerPmvs" :key="pmv.id" :value="pmv.id">
+            <select
+              v-model="selectedPmvId"
+              :disabled="Boolean(pmvSelectDisabledReason)"
+              :title="pmvSelectDisabledReason ?? undefined"
+            >
+              <option value="">请选择 PMV</option>
+              <option v-for="pmv in sortedPickerPmvs" :key="pmvRowId(pmv)" :value="String(pmvRowId(pmv))">
                 {{ pmvOptionLabel(pmv) }}
               </option>
             </select>
@@ -398,9 +443,10 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
             <textarea v-model="cardDescription" rows="2" maxlength="2000" />
           </label>
         </div>
+        <p v-if="pmvSelectDisabledReason" class="muted field-hint">{{ pmvSelectDisabledReason }}</p>
         <button
           type="button"
-          :disabled="!activeDeckId || selectedPmvId === ''"
+          :disabled="!activeDeckId || !selectedPmvId"
           @click="beginCardUpload"
         >
           选择图片并上传
@@ -547,6 +593,10 @@ label {
 
 .req {
   color: #f87171;
+}
+
+.field-hint {
+  margin: -0.25rem 0 0.75rem;
 }
 
 .pmv-form {
