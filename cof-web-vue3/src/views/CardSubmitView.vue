@@ -47,6 +47,17 @@ const backCropRef = ref<InstanceType<typeof ImageCropField> | null>(null);
 const cardCropRef = ref<InstanceType<typeof ImageCropField> | null>(null);
 const uploadTarget = ref<{ deckId: number; pmvId: number; shot: string } | null>(null);
 
+/** v-for 内的 ref 会变成数组；统一解析为单个裁剪组件实例 */
+function resolveCropRef(
+  target: InstanceType<typeof ImageCropField> | InstanceType<typeof ImageCropField>[] | null,
+): InstanceType<typeof ImageCropField> | null {
+  if (!target) return null;
+  if (Array.isArray(target)) {
+    return target.find((c) => c && typeof c.getCroppedBlob === "function") ?? null;
+  }
+  return typeof target.getCroppedBlob === "function" ? target : null;
+}
+
 const tabDeck = computed(() => myDecks.value.find((d) => String(d.id) === activeTab.value));
 const activeDeckId = computed(() => tabDeck.value?.id ?? null);
 
@@ -108,7 +119,12 @@ async function submitBack(event: MouseEvent): Promise<void> {
     return;
   }
   try {
-    const { blob } = await backCropRef.value!.getCroppedBlob();
+    const crop = resolveCropRef(backCropRef.value);
+    if (!crop) {
+      showAt(event, "请先选择牌背图片", "error");
+      return;
+    }
+    const { blob } = await crop.getCroppedBlob();
     await uploadSubmissionBack(activeDeckId.value, blob);
     showAt(event, "牌背已上传", "success");
     await refreshMine();
@@ -208,7 +224,12 @@ function beginShotUpload(deck: SubmissionDeck, pmv: SubmissionPmv): void {
 async function confirmShotUpload(event: MouseEvent): Promise<void> {
   if (!uploadTarget.value) return;
   try {
-    const { blob } = await cardCropRef.value!.getCroppedBlob();
+    const crop = resolveCropRef(cardCropRef.value);
+    if (!crop) {
+      showAt(event, "请先选择 PMV 截图", "error");
+      return;
+    }
+    const { blob } = await crop.getCroppedBlob();
     await addSubmissionCard(
       uploadTarget.value.deckId,
       uploadTarget.value.pmvId,
@@ -390,27 +411,31 @@ async function confirmShotUpload(event: MouseEvent): Promise<void> {
                   </button>
                 </div>
 
-                <div
-                  v-if="uploadTarget?.deckId === tabDeck.id && uploadTarget?.pmvId === pmv.pmvId"
-                  class="shot-uploader"
-                >
-                  <p class="muted">上传编号 {{ shotNumber(uploadTarget.shot) }}（1500x1080）</p>
-                  <ImageCropField
-                    ref="cardCropRef"
-                    label="PMV 截图"
-                    :aspect-ratio="1500 / 1080"
-                    :output-width="1500"
-                    :output-height="1080"
-                    hint="横版 1500x1080，提交前会裁剪并压缩为 JPEG。"
-                  />
-                  <div class="actions">
-                    <button type="button" class="primary" @click="confirmShotUpload($event)">确认上传</button>
-                    <button type="button" @click="uploadTarget = null">取消</button>
-                  </div>
-                </div>
               </div>
             </div>
             <p v-else class="muted">这个卡组还没有 PMV。</p>
+
+            <div
+              v-if="uploadTarget && uploadTarget.deckId === tabDeck.id"
+              class="shot-uploader"
+            >
+              <p class="muted">
+                PMV {{ uploadTarget.pmvId }} · 上传编号 {{ shotNumber(uploadTarget.shot) }}（1500x1080）
+              </p>
+              <ImageCropField
+                :key="`${uploadTarget.deckId}-${uploadTarget.pmvId}-${uploadTarget.shot}`"
+                ref="cardCropRef"
+                label="PMV 截图"
+                :aspect-ratio="1500 / 1080"
+                :output-width="1500"
+                :output-height="1080"
+                hint="横版 1500x1080，提交前会裁剪并压缩为 JPEG。"
+              />
+              <div class="actions">
+                <button type="button" class="primary" @click="confirmShotUpload($event)">确认上传</button>
+                <button type="button" @click="uploadTarget = null">取消</button>
+              </div>
+            </div>
           </div>
         </template>
         <p v-else class="muted">暂无提交记录。</p>
