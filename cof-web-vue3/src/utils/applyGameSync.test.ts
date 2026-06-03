@@ -53,7 +53,7 @@ describe("applyGameSync", () => {
     expect(result?.players?.[0]?.drawPile?.[0]?.backUrl).toContain("/cards/deck-a/back.png");
     expect(result?.players?.[0]?.displayPile?.[1]?.imageUrl).toContain("/cards/deck-a/3/a.jpg");
     expect(result?.logs).toHaveLength(2);
-    expect(result?.logs?.[1]?.text).toBe("new");
+    expect(result?.logs?.[0]?.text).toBe("new");
   });
 
   it("merges compact preLastTopCards patches", () => {
@@ -109,6 +109,37 @@ describe("applyGameSync", () => {
     expect(result?.preLastTopCards?.find((e) => e.playerId === "a")?.card?.id).toBe("d0");
   });
 
+  it("keeps drawCount authoritative when visible draw pile is incomplete", () => {
+    const prev: PublicGame = {
+      id: "g1",
+      status: "playing",
+      playCount: 5,
+      settings: { libraryIds: ["deck-a"] },
+      players: [
+        {
+          clientId: "a",
+          username: "A",
+          drawCount: 3,
+          displayCount: 0,
+          drawPile: [{ id: "c0" }, { id: "c1" }],
+          displayPile: [],
+        },
+      ],
+      logs: [],
+    };
+    const result = applyGameSync(prev, {
+      ev: "play",
+      by: "a",
+      c: { i: "c0", l: "deck-a", p: 4, s: 6 },
+      pc: 6,
+      lg: [{ id: "log-6", t: "A played", at: 6, pc: 6 }],
+    });
+    expect(result?.players?.[0]?.drawCount).toBe(2);
+    expect(result?.players?.[0]?.drawPile?.map((c) => c.id)).toEqual(["c1"]);
+    expect(result?.players?.[0]?.displayCount).toBe(1);
+    expect(result?.logs?.[0]?.text).toBe("A played");
+  });
+
   it("ignores duplicate play events that already reached the current play count", () => {
     const prev: PublicGame = {
       id: "g1",
@@ -140,6 +171,39 @@ describe("applyGameSync", () => {
     expect(result?.players?.[0]?.drawPile?.map((c) => c.id)).toEqual(["c1"]);
     expect(result?.players?.[0]?.displayPile?.map((c) => c.id)).toEqual(["d0", "c0"]);
     expect(result?.playCount).toBe(6);
+  });
+
+  it("merges logs from duplicate play events without replaying the card move", () => {
+    const prev: PublicGame = {
+      id: "g1",
+      status: "playing",
+      playCount: 6,
+      settings: { libraryIds: ["deck-a"] },
+      players: [
+        {
+          clientId: "a",
+          username: "A",
+          drawCount: 1,
+          drawPile: [{ id: "c1" }],
+          displayCount: 2,
+          displayPile: [
+            { id: "d0", pmvId: 1, imageUrl: "/x", playedSeq: 3 },
+            { id: "c0", pmvId: 4, imageUrl: "/y", playedSeq: 6 },
+          ],
+        },
+      ],
+      logs: [{ id: "old", text: "old", at: 1 }],
+    };
+    const result = applyGameSync(prev, {
+      ev: "play",
+      by: "a",
+      c: { i: "c0", l: "deck-a", p: 4, s: 6 },
+      pc: 6,
+      lg: [{ id: "new", t: "new", at: 2, pc: 6 }],
+    });
+    expect(result?.players?.[0]?.drawPile?.map((c) => c.id)).toEqual(["c1"]);
+    expect(result?.players?.[0]?.displayPile?.map((c) => c.id)).toEqual(["d0", "c0"]);
+    expect(result?.logs?.map((log) => log.text)).toEqual(["new", "old"]);
   });
 
   it("merges loading progress patches without moving progress backward", () => {

@@ -220,6 +220,10 @@ public class GameSyncEncoder {
         if (!jsonEquals(previous.resultInfo, current.resultInfo)) {
             delta.set("ri", objectMapper.valueToTree(current.resultInfo));
         }
+        ArrayNode newLogs = encodeNewLogs(previous.logs, current.logs);
+        if (!newLogs.isEmpty()) {
+            delta.set("lg", newLogs);
+        }
         return delta;
     }
 
@@ -564,23 +568,50 @@ public class GameSyncEncoder {
         if (currentLogs == null || currentLogs.isEmpty()) {
             return logs;
         }
-        int previousSize = previousLogs == null ? 0 : previousLogs.size();
-        if (currentLogs.size() <= previousSize) {
+        Map<String, Boolean> previousIds = new HashMap<>();
+        if (previousLogs != null) {
+            for (GameLog previous : previousLogs) {
+                if (previous != null && previous.id != null && !previous.id.isBlank()) {
+                    previousIds.put(previous.id, true);
+                }
+            }
+        }
+        if (!previousIds.isEmpty()) {
+            for (GameLog entry : currentLogs) {
+                if (entry == null) {
+                    continue;
+                }
+                if (entry.id != null && previousIds.containsKey(entry.id)) {
+                    break;
+                }
+                logs.add(encodeCompactLog(entry));
+            }
             return logs;
         }
-        for (int index = previousSize; index < currentLogs.size(); index += 1) {
+        int previousSize = previousLogs == null ? 0 : previousLogs.size();
+        int newCount = Math.max(0, currentLogs.size() - previousSize);
+        for (int index = 0; index < newCount; index += 1) {
             GameLog entry = currentLogs.get(index);
-            ObjectNode compact = objectMapper.createObjectNode();
-            if (entry.text != null) {
-                compact.put("t", entry.text);
+            if (entry != null) {
+                logs.add(encodeCompactLog(entry));
             }
-            compact.put("at", entry.at);
-            if (entry.playCount > 0) {
-                compact.put("pc", entry.playCount);
-            }
-            logs.add(compact);
         }
         return logs;
+    }
+
+    private ObjectNode encodeCompactLog(GameLog entry) {
+        ObjectNode compact = objectMapper.createObjectNode();
+        if (entry.id != null && !entry.id.isBlank()) {
+            compact.put("id", entry.id);
+        }
+        if (entry.text != null) {
+            compact.put("t", entry.text);
+        }
+        compact.put("at", entry.at);
+        if (entry.playCount > 0) {
+            compact.put("pc", entry.playCount);
+        }
+        return compact;
     }
 
     private boolean jsonEquals(Object left, Object right) {

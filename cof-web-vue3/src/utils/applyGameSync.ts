@@ -213,14 +213,13 @@ function applyPlayCardEvent(
   const prevActor = previous.players?.find((player) => player.clientId === by);
   const actor = players.find((player) => player.clientId === by);
   if (actor) {
+    const previousDrawCount = prevActor?.drawCount ?? actor.drawCount ?? actor.drawPile?.length ?? 0;
     if (actor.drawPile?.length) {
       actor.drawPile = actor.drawPile.slice(1);
-      actor.drawCount = actor.drawPile.length;
-    } else {
-      actor.drawCount = Math.max(0, (prevActor?.drawCount ?? actor.drawCount ?? 0) - 1);
     }
+    actor.drawCount = Math.max(0, previousDrawCount - 1);
     actor.displayPile = [...(actor.displayPile ?? []), card];
-    actor.displayCount = actor.displayPile.length;
+    actor.displayCount = Math.max(actor.displayPile.length, (prevActor?.displayCount ?? 0) + 1);
     if (node.el === 1 || node.el === true) {
       actor.eliminated = true;
     }
@@ -246,6 +245,9 @@ function applyPlayCardEvent(
   if (node.ri && typeof node.ri === "object") {
     next.resultInfo = node.ri as PublicGame["resultInfo"];
   }
+  if (Array.isArray(node.lg)) {
+    next.logs = appendLogs(previous.logs ?? [], node.lg);
+  }
   return next;
 }
 
@@ -259,12 +261,15 @@ function appendLogs(previous: GameLog[], incoming: unknown[]): GameLog[] {
       return raw as GameLog;
     }
     return {
+      id: typeof raw.id === "string" ? raw.id : undefined,
       text: typeof raw.t === "string" ? raw.t : undefined,
       at: typeof raw.at === "number" ? raw.at : undefined,
       playCount: typeof raw.pc === "number" ? raw.pc : undefined,
     } as GameLog;
   });
-  return [...previous, ...mapped];
+  const seen = new Set(mapped.map((log) => log?.id).filter((id): id is string => Boolean(id)));
+  const remaining = previous.filter((log) => !log.id || !seen.has(log.id));
+  return [...mapped, ...remaining].slice(0, 40);
 }
 
 export function applyGameSync(previous: PublicGame | null, sync: unknown): PublicGame | null {
@@ -284,6 +289,9 @@ export function applyGameSync(previous: PublicGame | null, sync: unknown): Publi
   if (node.ev === "play") {
     const incomingPlayCount = typeof node.pc === "number" ? node.pc : 0;
     if (incomingPlayCount > 0 && (previous.playCount ?? 0) >= incomingPlayCount) {
+      if (Array.isArray(node.lg)) {
+        return { ...previous, logs: appendLogs(previous.logs ?? [], node.lg) };
+      }
       return previous;
     }
     return applyPlayCardEvent(previous, node);

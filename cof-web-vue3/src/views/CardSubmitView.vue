@@ -44,6 +44,14 @@ const backCropRef = ref<InstanceType<typeof ImageCropField> | null>(null);
 const cardCropRef = ref<InstanceType<typeof ImageCropField> | null>(null);
 const showCardUploader = ref(false);
 
+interface PmvGroup {
+  pmvId: number;
+  label: string;
+  cards: SubmissionCard[];
+  reviewStatus?: string;
+  pendingReviewStatus?: string;
+}
+
 function resolveCropRef(
   target: InstanceType<typeof ImageCropField> | InstanceType<typeof ImageCropField>[] | null,
 ): InstanceType<typeof ImageCropField> | null {
@@ -84,16 +92,23 @@ function cardsForPmv(deck: SubmissionDeck, pmvId: number): SubmissionCard[] {
   return (deck.cards ?? []).filter((c) => c.pmvId === pmvId);
 }
 
-function pmvGroups(deck: SubmissionDeck): { pmvId: number; label: string; cards: SubmissionCard[] }[] {
+function pmvGroups(deck: SubmissionDeck): PmvGroup[] {
   const ids = new Set<number>();
   for (const card of deck.cards ?? []) {
     if (card.pmvId != null) ids.add(card.pmvId);
   }
-  return Array.from(ids).map((pmvId) => ({
-    pmvId,
-    label: pmvLabel(pmvId),
-    cards: cardsForPmv(deck, pmvId),
-  }));
+  return Array.from(ids).map((pmvId) => {
+    const cards = cardsForPmv(deck, pmvId);
+    const first = cards[0];
+    const pmv = pickerPmvs.value.find((p) => (p.id ?? p.pmvId) === pmvId);
+    return {
+      pmvId,
+      label: pmvLabel(pmvId),
+      cards,
+      reviewStatus: first?.pmvReviewStatus ?? pmv?.reviewStatus,
+      pendingReviewStatus: first?.pmvPendingReviewStatus ?? pmv?.pendingReviewStatus,
+    };
+  });
 }
 
 async function refreshPmvs(): Promise<void> {
@@ -206,6 +221,40 @@ function statusLabel(status?: string): string {
   return "待审核";
 }
 
+function isApprovedStatus(status?: string): boolean {
+  return status === "approved";
+}
+
+function statusClass(status?: string): string {
+  if (status === "approved") return "approved";
+  if (status === "rejected") return "rejected";
+  return "pending";
+}
+
+function isPmvPlayable(deck: SubmissionDeck, group: PmvGroup): boolean {
+  return isApprovedStatus(deck.reviewStatus) && isApprovedStatus(group.reviewStatus);
+}
+
+function isCardPlayable(deck: SubmissionDeck, card: SubmissionCard): boolean {
+  return (
+    isApprovedStatus(deck.reviewStatus) &&
+    isApprovedStatus(card.pmvReviewStatus) &&
+    isApprovedStatus(card.reviewStatus)
+  );
+}
+
+function cardEffectiveStatus(deck: SubmissionDeck, card: SubmissionCard): string | undefined {
+  if (!isApprovedStatus(deck.reviewStatus)) return deck.reviewStatus;
+  if (!isApprovedStatus(card.pmvReviewStatus)) return card.pmvReviewStatus;
+  return card.reviewStatus;
+}
+
+function cardEffectiveLabel(deck: SubmissionDeck, card: SubmissionCard): string {
+  if (!isApprovedStatus(deck.reviewStatus)) return `卡组${statusLabel(deck.reviewStatus)}`;
+  if (!isApprovedStatus(card.pmvReviewStatus)) return `PMV${statusLabel(card.pmvReviewStatus)}`;
+  return statusLabel(card.reviewStatus);
+}
+
 function beginCardUpload(): void {
   if (!activeDeckId.value || selectedPmvId.value === "") {
     return;
@@ -316,7 +365,11 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
               <tr v-for="row in filteredPickerPmvs" :key="row.id">
                 <td>{{ row.name }}</td>
                 <td>{{ row.author || "—" }}</td>
-                <td>{{ statusLabel(row.reviewStatus) }}</td>
+                <td>
+                  <span class="badge" :class="statusClass(row.reviewStatus)">
+                    {{ statusLabel(row.reviewStatus) }}
+                  </span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -390,7 +443,9 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
             <div class="submission-header">
               <div>
                 <p>
-                  <span class="badge">{{ statusLabel(tabDeck.reviewStatus) }}</span>
+                  <span class="badge" :class="statusClass(tabDeck.reviewStatus)">
+                    卡组{{ statusLabel(tabDeck.reviewStatus) }}
+                  </span>
                   <span v-if="tabDeck.pendingReviewStatus === 'pending'" class="badge muted">修改待审</span>
                   <span class="muted">#{{ tabDeck.id }} · {{ tabDeck.cardCount ?? 0 }} 张 · {{ tabDeck.pmvCount ?? 0 }} PMV</span>
                 </p>
@@ -404,13 +459,36 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
             </div>
 
             <div v-if="pmvGroups(tabDeck).length" class="pmv-mini-list">
-              <div v-for="group in pmvGroups(tabDeck)" :key="group.pmvId" class="pmv-mini">
-                <p class="muted">{{ group.label }}</p>
+              <div
+                v-for="group in pmvGroups(tabDeck)"
+                :key="group.pmvId"
+                class="pmv-mini"
+                :class="{ blocked: !isPmvPlayable(tabDeck, group) }"
+              >
+                <div class="pmv-mini-head">
+                  <span>{{ group.label }}</span>
+                  <span class="badge" :class="statusClass(group.reviewStatus)">
+                    PMV{{ statusLabel(group.reviewStatus) }}
+                  </span>
+                  <span v-if="group.pendingReviewStatus === 'pending'" class="badge muted">PMV 修改待审</span>
+                  <span v-if="!isApprovedStatus(tabDeck.reviewStatus)" class="badge pending">卡组未通过</span>
+                </div>
                 <div class="submission-shots">
-                  <figure v-for="card in group.cards" :key="card.id" class="shot-tile">
+                  <figure
+                    v-for="card in group.cards"
+                    :key="card.id"
+                    class="shot-tile"
+                    :class="{ dimmed: !isCardPlayable(tabDeck, card) }"
+                  >
                     <button type="button" class="shot-remove" title="删除" @click="removeCard($event, card)">×</button>
                     <img :src="card.imageUrl" alt="" />
-                    <figcaption>{{ card.name || `#${card.id}` }}</figcaption>
+                    <figcaption>
+                      <span class="shot-title">{{ card.name || `#${card.id}` }}</span>
+                      <span class="badge mini" :class="statusClass(cardEffectiveStatus(tabDeck, card))">
+                        {{ cardEffectiveLabel(tabDeck, card) }}
+                      </span>
+                      <span v-if="card.pendingReviewStatus === 'pending'" class="badge mini muted">卡牌修改待审</span>
+                    </figcaption>
                   </figure>
                 </div>
               </div>
@@ -526,6 +604,26 @@ label {
   padding: 0.1rem 0.45rem;
 }
 
+.badge.approved {
+  background: rgba(34, 197, 94, 0.18);
+  color: #bbf7d0;
+}
+
+.badge.pending {
+  background: rgba(148, 163, 184, 0.18);
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.badge.rejected {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca;
+}
+
+.badge.mini {
+  display: inline-block;
+  margin-top: 0.25rem;
+}
+
 .thumb-row {
   margin-bottom: 1rem;
 }
@@ -539,6 +637,22 @@ label {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.pmv-mini {
+  margin-bottom: 1rem;
+}
+
+.pmv-mini.blocked {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.pmv-mini-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
 }
 
 .shot-tile {
@@ -555,9 +669,19 @@ label {
   width: 100%;
 }
 
+.shot-tile.dimmed img {
+  filter: grayscale(35%);
+  opacity: 0.46;
+}
+
 .shot-tile figcaption {
   font-size: 0.8rem;
   margin-top: 0.25rem;
+}
+
+.shot-title {
+  display: block;
+  overflow-wrap: anywhere;
 }
 
 .shot-remove {

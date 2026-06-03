@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -52,7 +53,7 @@ public class DeckCatalogService {
             return cached.get();
         }
         List<CardLibraryDto> summaries = deckMapper.listPlayableDecks().stream()
-                .map(this::toSummary)
+                .map(deck -> assembleBundle(deck, null))
                 .sorted(Comparator.comparing(l -> l.name, String.CASE_INSENSITIVE_ORDER))
                 .collect(Collectors.toList());
         redis.set(RedisKeys.CACHE_CARD_LIBRARIES, summaries, Duration.ofHours(24));
@@ -156,6 +157,7 @@ public class DeckCatalogService {
     public void bustCaches() {
         redis.delete(RedisKeys.CACHE_CARD_LIBRARIES);
         redis.deleteByPrefix(RedisKeys.DECK_BUNDLE_PREFIX);
+        bustRoomCatalogs();
     }
 
     public void bustCachesForDeck(Long deckId) {
@@ -165,6 +167,17 @@ public class DeckCatalogService {
         redis.delete(RedisKeys.CACHE_CARD_LIBRARIES);
         redis.delete(RedisKeys.deckBundle(String.valueOf(deckId)));
         redis.deleteByPrefix(RedisKeys.deckBundle(deckId + ":viewer:"));
+        bustRoomCatalogs();
+    }
+
+    private void bustRoomCatalogs() {
+        Set<String> roomIds = redis.setMembers(RedisKeys.ROOM_INDEX);
+        if (roomIds == null || roomIds.isEmpty()) {
+            return;
+        }
+        for (String roomId : roomIds) {
+            redis.delete(RedisKeys.roomCatalog(roomId));
+        }
     }
 
     public List<Card> expandedCards(String gameId, GameSettings settings) {
@@ -341,6 +354,14 @@ public class DeckCatalogService {
             card.approvedForPlay = CatalogRevisionHelper.isPlayableCard(deck, pmv, row);
             dto.cards.add(card);
         }
+        dto.cardCount = (int) dto.cards.stream()
+                .filter(card -> Boolean.TRUE.equals(card.approvedForPlay))
+                .count();
+        dto.pmvCount = (int) dto.cards.stream()
+                .filter(card -> Boolean.TRUE.equals(card.approvedForPlay))
+                .map(card -> card.pmvId)
+                .distinct()
+                .count();
         return dto;
     }
 

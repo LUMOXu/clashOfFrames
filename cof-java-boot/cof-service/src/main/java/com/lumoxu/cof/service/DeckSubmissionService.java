@@ -477,6 +477,8 @@ public class DeckSubmissionService {
         row.put("pmvId", pmv != null ? pmv.id : card.pmvId);
         row.put("pmvName", pmv != null ? pmv.name : null);
         row.put("pmvAuthor", pmv != null ? pmv.author : null);
+        row.put("pmvReviewStatus", pmv != null ? pmv.reviewStatus : null);
+        row.put("pmvPendingReviewStatus", pmv != null ? pmv.pendingReviewStatus : null);
         row.put("name", card.name);
         row.put("description", card.description);
         row.put("imageUrl", card.imageUrl);

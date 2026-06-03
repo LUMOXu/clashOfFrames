@@ -47,6 +47,36 @@ class GameSyncEncoderTest {
         assertTrue(gzipJson(mapper.writeValueAsBytes(delta)).length < 512);
     }
 
+    @Test
+    void playCardDeltaIncludesNewestLog() {
+        Game game = freshTwoPlayerGame();
+        PublicGame before = GameCore.publicGame(game);
+        String actor = game.players.get(game.turnIndex).clientId;
+
+        ActionResult result = GameCore.performPlayCard(game, actor, 2_000L, false);
+        assertTrue(result.ok, () -> "play failed: " + result.error);
+
+        JsonNode delta = encoder.encodeDelta(before, GameCore.publicGame(game));
+        assertEquals("play", delta.path("ev").asText());
+        assertEquals(1, delta.path("lg").size());
+        assertTrue(delta.path("lg").get(0).path("t").asText().contains("Player"));
+        assertTrue(delta.path("lg").get(0).has("id"));
+    }
+
+    @Test
+    void prependedLogDeltaEmitsNewestLog() {
+        PublicGame previous = samplePublicGame(2, 4);
+        previous.logs = List.of(log("old", "old", 100L));
+        PublicGame current = samplePublicGame(2, 4);
+        current.logs = List.of(log("new", "new", 200L), log("old", "old", 100L));
+
+        JsonNode delta = encoder.encodeDelta(previous, current);
+
+        assertEquals(1, delta.path("lg").size());
+        assertEquals("new", delta.path("lg").get(0).path("id").asText());
+        assertEquals("new", delta.path("lg").get(0).path("t").asText());
+    }
+
     private static Game freshTwoPlayerGame() {
         Room room = new Room();
         room.id = "room-2";
@@ -200,6 +230,14 @@ class GameSyncEncoderTest {
         GameLog entry = new GameLog();
         entry.text = text;
         entry.at = System.currentTimeMillis();
+        return entry;
+    }
+
+    private static GameLog log(String id, String text, long at) {
+        GameLog entry = new GameLog();
+        entry.id = id;
+        entry.text = text;
+        entry.at = at;
         return entry;
     }
 }

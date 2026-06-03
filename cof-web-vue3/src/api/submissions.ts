@@ -34,6 +34,8 @@ export interface SubmissionCard {
   pmvId?: number;
   pmvName?: string;
   pmvAuthor?: string;
+  pmvReviewStatus?: string;
+  pmvPendingReviewStatus?: string;
   name?: string;
   description?: string;
   imageUrl?: string;

@@ -1,8 +1,6 @@
 package com.lumoxu.cof.api.controller;
 
-import com.lumoxu.cof.api.auth.AuthContext;
 import com.lumoxu.cof.common.api.ApiResponse;
-import com.lumoxu.cof.common.auth.TokenPayload;
 import com.lumoxu.cof.service.CardViewerService;
 import com.lumoxu.cof.service.ComputerPlayerService;
 import com.lumoxu.cof.service.MetaService;
@@ -52,11 +50,6 @@ public class MetaController {
         List<String> ids = libraryIds == null || libraryIds.isBlank()
                 ? List.of()
                 : Arrays.stream(libraryIds.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
-        String viewerId = null;
-        TokenPayload auth = AuthContext.get();
-        if (auth != null) {
-            viewerId = auth.clientId.toString();
-        }
-        return ApiResponse.ok(cardViewerService.buildViewerPayload(ids, viewerId));
+        return ApiResponse.ok(cardViewerService.buildViewerPayload(ids, null));
     }
 }

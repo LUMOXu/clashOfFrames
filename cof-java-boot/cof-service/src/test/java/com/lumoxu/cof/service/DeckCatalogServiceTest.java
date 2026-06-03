@@ -20,11 +20,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,19 +53,35 @@ class DeckCatalogServiceTest {
         CofDeck deck = approvedDeck(1L, "Test Deck");
         CofPmv pmv = approvedPmv(10L, "PMV");
         CofCard card = approvedCard(100L, 1L, 10L);
+        CofCard pending = approvedCard(101L, 1L, 10L);
+        pending.reviewStatus = ReviewStatus.PENDING;
         when(deckMapper.selectById(1L)).thenReturn(deck);
         when(pmvMapper.listAlive()).thenReturn(List.of(pmv));
-        when(cardMapper.listAliveByDeckId(1L)).thenReturn(List.of(card));
-        when(cardMapper.countAliveByDeckId(1L)).thenReturn(1L);
-        when(cardMapper.countDistinctPmvByDeckId(1L)).thenReturn(1L);
+        when(cardMapper.listAliveByDeckId(1L)).thenReturn(List.of(card, pending));
+        when(cardMapper.countAliveByDeckId(1L)).thenReturn(2L);
+        when(cardMapper.countDistinctPmvByDeckId(1L)).thenReturn(2L);
         when(redis.get(eq(RedisKeys.deckBundle("1")), eq(CardLibraryDto.class))).thenReturn(Optional.empty());
 
         CardLibraryDto bundle = deckCatalogService.loadDeckBundle(1L);
         assertEquals("1", bundle.id);
+        assertEquals(1, bundle.cardCount);
+        assertEquals(1, bundle.pmvCount);
         assertEquals(1, bundle.cards.size());
         assertEquals("100", bundle.cards.get(0).id);
         assertEquals(10L, bundle.cards.get(0).pmvId);
         assertTrue(bundle.cards.get(0).approvedForPlay);
+    }
+
+    @Test
+    void bustCachesForDeckDropsWaitingRoomCatalogs() {
+        when(redis.setMembers(RedisKeys.ROOM_INDEX)).thenReturn(Set.of("room-a", "room-b"));
+
+        deckCatalogService.bustCachesForDeck(1L);
+
+        verify(redis).delete(RedisKeys.CACHE_CARD_LIBRARIES);
+        verify(redis).delete(RedisKeys.deckBundle("1"));
+        verify(redis).delete(RedisKeys.roomCatalog("room-a"));
+        verify(redis).delete(RedisKeys.roomCatalog("room-b"));
     }
 
     @Test
