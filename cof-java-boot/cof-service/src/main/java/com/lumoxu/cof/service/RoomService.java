@@ -374,6 +374,7 @@ public class RoomService {
         if (!roomStartVoteService.isReadyToStart(room, now)) {
             return false;
         }
+        retainVotersAndComputersForVoteStart(room);
         migrateHostIfNeeded(room);
         if (room.hostId == null || PlayerPresenceService.isComputerClient(room.hostId)) {
             return false;
@@ -384,6 +385,27 @@ public class RoomService {
         room.startVotes.clear();
         save(room);
         return true;
+    }
+
+    private void retainVotersAndComputersForVoteStart(RoomState room) {
+        Set<String> validHumanVotes = room.startVotes.stream()
+                .filter(room.players::contains)
+                .filter(clientId -> !PlayerPresenceService.isComputerClient(clientId))
+                .collect(Collectors.toSet());
+        List<String> removedHumans = new ArrayList<>();
+        room.players.removeIf(clientId -> {
+            boolean remove = !PlayerPresenceService.isComputerClient(clientId)
+                    && !validHumanVotes.contains(clientId);
+            if (remove) {
+                removedHumans.add(clientId);
+            }
+            return remove;
+        });
+        room.startVotes.removeIf(clientId -> !validHumanVotes.contains(clientId));
+        room.spectators.removeAll(removedHumans);
+        for (String clientId : removedHumans) {
+            playerRoomService.unbind(clientId);
+        }
     }
 
     public RoomState transferHost(RoomState room, String hostId, String newHostId) {

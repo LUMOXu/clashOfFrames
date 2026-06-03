@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import PagePanel from "@/components/PagePanel.vue";
@@ -36,11 +36,20 @@ const settings = ref<GameSettings>({
   disconnectProtection: true,
 });
 const newHostId = ref("");
-const saveHint = ref("");
+const saveToast = ref("");
 
 const libraries = computed(() => lobby.cardLibraries as CardLibraryMeta[]);
 
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let saveTimer: number | null = null;
+let saveToastTimer: number | null = null;
+
+function showSaveToast(): void {
+  saveToast.value = "已自动保存";
+  if (saveToastTimer) window.clearTimeout(saveToastTimer);
+  saveToastTimer = window.setTimeout(() => {
+    saveToast.value = "";
+  }, 2000);
+}
 
 onMounted(async () => {
   await lobby.loadMeta();
@@ -61,19 +70,21 @@ watch(
   settings,
   () => {
     if (!isHost.value || transferMode.value) return;
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(async () => {
+    if (saveTimer) window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(async () => {
       if (!roomId.value) return;
       const result = await roomsApi.updateRoomSettings(roomId.value, settings.value);
       roomStore.applyRoomUpdate(result.room);
-      saveHint.value = "已自动保存";
-      window.setTimeout(() => {
-        saveHint.value = "";
-      }, 1500);
+      showSaveToast();
     }, 180);
   },
   { deep: true },
 );
+
+onUnmounted(() => {
+  if (saveTimer) window.clearTimeout(saveTimer);
+  if (saveToastTimer) window.clearTimeout(saveToastTimer);
+});
 
 async function transfer(): Promise<void> {
   if (!roomId.value || !newHostId.value) return;
@@ -84,6 +95,7 @@ async function transfer(): Promise<void> {
 
 <template>
   <AppShell>
+    <div v-if="saveToast" class="settings-save-toast" role="status">{{ saveToast }}</div>
     <PagePanel :title="transferMode ? '转让房主' : '房间设置'">
       <template v-if="transferMode">
         <label>
@@ -107,7 +119,6 @@ async function transfer(): Promise<void> {
         </div>
       </template>
       <template v-else>
-        <p v-if="saveHint" class="muted">{{ saveHint }}</p>
         <form class="grid settings-form">
           <RoomOptionsForm :settings="settings" show-vote show-advanced />
           <LibraryPicker :libraries="libraries" :settings="settings" />

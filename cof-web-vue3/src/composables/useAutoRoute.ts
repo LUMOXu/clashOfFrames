@@ -1,14 +1,23 @@
 import { watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
+import { useAuthStore } from "@/stores/authStore";
 import { useRoomStore } from "@/stores/roomStore";
 import { useGameStore } from "@/stores/gameStore";
 import type { RoomSummary } from "@/types/api";
 
 const ROOM_ROUTES = new Set(["waiting", "settings", "loading", "game"]);
 
+export function isRoomParticipant(room: RoomSummary, clientId: string): boolean {
+  if (!clientId) {
+    return true;
+  }
+  return Boolean(room.players?.includes(clientId) || room.spectators?.includes(clientId));
+}
+
 export function useAutoRoute(): void {
   const router = useRouter();
   const route = useRoute();
+  const auth = useAuthStore();
   const roomStore = useRoomStore();
   const gameStore = useGameStore();
 
@@ -22,6 +31,12 @@ export function useAutoRoute(): void {
       if (!room) return;
 
       const currentRoute = String(route.name);
+      if (!isRoomParticipant(room, auth.clientId)) {
+        roomStore.clearRoom();
+        gameStore.clearGame();
+        void router.push({ name: "home" });
+        return;
+      }
 
       if (status === "waiting" && currentRoute !== "waiting" && currentRoute !== "settings") {
         if (currentRoute === "loading") {

@@ -355,20 +355,15 @@ public class GameSyncEncoder {
                 patch.put("ea", current.eliminatedAt);
             }
         }
-        if (!pileIdsEqual(previous.drawPile, current.drawPile)) {
-            if (isDrawPileHeadRemoved(previous.drawPile, current.drawPile)) {
-                patch.put("drm", 1);
-            } else {
-                patch.set("dr", encodeCompactCards(current.drawPile));
-            }
+        boolean drawPileChanged = !pileIdsEqual(previous.drawPile, current.drawPile);
+        boolean displayPileChanged = !pileIdsEqual(previous.displayPile, current.displayPile);
+        boolean drawCountChanged = previous.drawCount != current.drawCount;
+        boolean displayCountChanged = previous.displayCount != current.displayCount;
+        if (drawPileChanged || drawCountChanged || displayPileChanged || displayCountChanged) {
+            patch.set("dr", encodeCompactCards(current.drawPile));
         }
-        if (!pileIdsEqual(previous.displayPile, current.displayPile)) {
-            PublicCard appended = displayPileAppendedCard(previous.displayPile, current.displayPile);
-            if (appended != null) {
-                patch.set("dpa", encodeCompactCard(appended));
-            } else {
-                patch.set("dp", encodeCompactCards(current.displayPile));
-            }
+        if (displayPileChanged || displayCountChanged) {
+            patch.set("dp", encodeCompactCards(current.displayPile));
         }
         if (statsChanged(previous.stats, current.stats) && current.stats != null) {
             patch.set("ps", encodeStats(current.stats));

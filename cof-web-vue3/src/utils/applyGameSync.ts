@@ -37,6 +37,8 @@ interface CompactTopEntry {
   c?: unknown;
 }
 
+const LOG_LIMIT = 40;
+
 function mergeStats(
   previous: PublicPlayer["stats"] | undefined,
   patch: PlayerPatch["ps"],
@@ -67,6 +69,8 @@ function applyPlayerPatch(
     clientId,
     username: previous?.username ?? "",
   };
+  const previousDrawCount = previous?.drawCount;
+  const previousDisplayCount = previous?.displayCount;
   if (typeof patch.dc === "number") next.drawCount = patch.dc;
   if (typeof patch.xc === "number") {
     next.displayCount = patch.xc;
@@ -94,18 +98,33 @@ function applyPlayerPatch(
   if (typeof patch.lf === "number") next.loadingFinishedAt = patch.lf;
   if (typeof patch.rk === "number") next.rank = patch.rk;
   if (typeof patch.ea === "number") next.eliminatedAt = patch.ea;
-  if (typeof patch.drm === "number" && patch.drm > 0) {
+  const canApplyDrawRemoval =
+    typeof patch.dc !== "number" ||
+    previousDrawCount === undefined ||
+    previousDrawCount > patch.dc;
+  if (typeof patch.drm === "number" && patch.drm > 0 && canApplyDrawRemoval) {
     next.drawPile = (previous?.drawPile ?? []).slice(patch.drm);
   } else {
+    if (typeof patch.drm === "number" && patch.drm > 0 && previousDrawCount !== undefined) {
+      next.drawCount = previousDrawCount;
+    }
     const dr = expandCompactCards(patch.dr, settings);
     if (dr) next.drawPile = dr;
   }
   if (patch.dpa) {
-    const appended = expandCompactCard(
-      patch.dpa as Parameters<typeof expandCompactCard>[0],
-      settings,
-    );
-    next.displayPile = [...(previous?.displayPile ?? []), appended];
+    const canApplyDisplayAppend =
+      typeof patch.xc !== "number" ||
+      previousDisplayCount === undefined ||
+      previousDisplayCount < patch.xc;
+    if (canApplyDisplayAppend) {
+      const appended = expandCompactCard(
+        patch.dpa as Parameters<typeof expandCompactCard>[0],
+        settings,
+      );
+      next.displayPile = [...(previous?.displayPile ?? []), appended];
+    } else if (previousDisplayCount !== undefined) {
+      next.displayCount = previousDisplayCount;
+    }
   } else {
     const dp = expandCompactCards(patch.dp, settings);
     if (dp) next.displayPile = dp;
@@ -251,25 +270,107 @@ function applyPlayCardEvent(
   return next;
 }
 
+function normalizeLog(entry: unknown): GameLog {
+  if (!entry || typeof entry !== "object") {
+    return entry as GameLog;
+  }
+  const raw = entry as Record<string, unknown>;
+  if (typeof raw.text === "string") {
+    return raw as GameLog;
+  }
+  return {
+    id: typeof raw.id === "string" ? raw.id : undefined,
+    text: typeof raw.t === "string" ? raw.t : undefined,
+    at: typeof raw.at === "number" ? raw.at : undefined,
+    playCount: typeof raw.pc === "number" ? raw.pc : undefined,
+  } as GameLog;
+}
+
+function normalizeLogs(entries: unknown[] | undefined): GameLog[] {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries.map((entry) => normalizeLog(entry));
+}
+
+function logKey(log: GameLog): string | undefined {
+  if (log.id) {
+    return `id:${log.id}`;
+  }
+  if (log.text || typeof log.at === "number" || typeof log.playCount === "number") {
+    return `anon:${log.playCount ?? ""}:${log.at ?? ""}:${log.text ?? ""}`;
+  }
+  return undefined;
+}
+
 function appendLogs(previous: GameLog[], incoming: unknown[]): GameLog[] {
-  const mapped = incoming.map((entry) => {
-    if (!entry || typeof entry !== "object") {
-      return entry as GameLog;
-    }
-    const raw = entry as Record<string, unknown>;
-    if (typeof raw.text === "string") {
-      return raw as GameLog;
-    }
-    return {
-      id: typeof raw.id === "string" ? raw.id : undefined,
-      text: typeof raw.t === "string" ? raw.t : undefined,
-      at: typeof raw.at === "number" ? raw.at : undefined,
-      playCount: typeof raw.pc === "number" ? raw.pc : undefined,
-    } as GameLog;
+  const mapped = normalizeLogs(incoming);
+  const seen = new Set(
+    mapped.map((log) => logKey(log)).filter((key): key is string => Boolean(key)),
+  );
+  const remaining = normalizeLogs(previous).filter((log) => {
+    const key = logKey(log);
+    return !key || !seen.has(key);
   });
-  const seen = new Set(mapped.map((log) => log?.id).filter((id): id is string => Boolean(id)));
-  const remaining = previous.filter((log) => !log.id || !seen.has(log.id));
-  return [...mapped, ...remaining].slice(0, 40);
+  return [...mapped, ...remaining].slice(0, LOG_LIMIT);
+}
+
+function actionCounter(game: PublicGame, key: keyof PublicGame): number {
+  const value = game[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function isStaleFullSnapshot(previous: PublicGame, full: PublicGame): boolean {
+  if (previous.id && full.id && previous.id !== full.id) {
+    return false;
+  }
+  const counters: (keyof PublicGame)[] = [
+    "playCount",
+    "bellCount",
+    "successBellCount",
+    "failBellCount",
+    "discardedCards",
+  ];
+  return counters.some((key) => actionCounter(full, key) < actionCounter(previous, key));
+}
+
+function mergeSnapshotLogs(primary: unknown[] | undefined, secondary: unknown[] | undefined): GameLog[] {
+  const rows: { log: GameLog; order: number }[] = [];
+  const seen = new Set<string>();
+  const add = (logs: GameLog[]) => {
+    for (const log of logs) {
+      const key = logKey(log);
+      if (key) {
+        if (seen.has(key)) continue;
+        seen.add(key);
+      }
+      rows.push({ log, order: rows.length });
+    }
+  };
+  add(normalizeLogs(primary));
+  add(normalizeLogs(secondary));
+  rows.sort((left, right) => {
+    const leftAt = typeof left.log.at === "number" ? left.log.at : Number.NEGATIVE_INFINITY;
+    const rightAt = typeof right.log.at === "number" ? right.log.at : Number.NEGATIVE_INFINITY;
+    if (leftAt !== rightAt) {
+      return rightAt - leftAt;
+    }
+    return left.order - right.order;
+  });
+  return rows.map((row) => row.log).slice(0, LOG_LIMIT);
+}
+
+function applyFullSnapshot(previous: PublicGame | null, full: PublicGame): PublicGame {
+  if (!previous || (previous.id && full.id && previous.id !== full.id)) {
+    return full;
+  }
+  if (isStaleFullSnapshot(previous, full)) {
+    return previous;
+  }
+  return {
+    ...full,
+    logs: mergeSnapshotLogs(full.logs, previous.logs),
+  };
 }
 
 export function applyGameSync(previous: PublicGame | null, sync: unknown): PublicGame | null {
@@ -278,7 +379,7 @@ export function applyGameSync(previous: PublicGame | null, sync: unknown): Publi
   }
   const node = sync as Record<string, unknown>;
   if (node.full && typeof node.full === "object") {
-    return node.full as PublicGame;
+    return applyFullSnapshot(previous, node.full as PublicGame);
   }
   if (!previous) {
     return null;

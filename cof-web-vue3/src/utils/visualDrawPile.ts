@@ -6,9 +6,10 @@ export function visualDrawPile(
   animation: PublicAnimation | null | undefined,
   now: number,
 ): PublicCard[] {
-  const cards = [...(player.drawPile || [])];
+  const visibleCount = Math.min(8, Math.max(0, player.drawPile?.length ?? 0));
+  const cards = [...(player.drawPile || [])].slice(0, visibleCount);
   if (!animation || animation.type !== "fail" || !animation.startedAt) {
-    return cards.slice(0, 8);
+    return cards;
   }
   const elapsed = Math.max(0, now - animation.startedAt);
   const moveMs = animation.moveMs ?? 0;
@@ -23,7 +24,7 @@ export function visualDrawPile(
       .filter((id): id is string => Boolean(id)),
   );
   if (pendingIds.size === 0) {
-    return cards.slice(0, 8);
+    return cards;
   }
-  return cards.filter((card) => !pendingIds.has(card.id)).slice(0, 8);
+  return cards.filter((card) => !pendingIds.has(card.id));
 }

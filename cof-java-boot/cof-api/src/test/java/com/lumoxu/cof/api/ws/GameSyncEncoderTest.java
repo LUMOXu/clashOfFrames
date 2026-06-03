@@ -178,6 +178,70 @@ class GameSyncEncoderTest {
         assertEquals(60, patch.path("lp").asInt());
     }
 
+    @Test
+    void nonPlayPilePatchUsesAbsolutePiles() {
+        PublicGame previous = samplePublicGame(2, 6);
+        previous.turnIndex = 0;
+        PublicPlayer player = previous.players.get(0);
+        player.drawCount = 3;
+        player.displayCount = 0;
+        player.drawPile = List.of(backCard("d0"), backCard("d1"), backCard("d2"));
+        player.displayPile = List.of();
+
+        PublicGame current = samplePublicGame(2, 6);
+        current.turnIndex = 0;
+        current.bellCount = previous.bellCount + 1;
+        PublicPlayer currentPlayer = current.players.get(0);
+        currentPlayer.drawCount = 2;
+        currentPlayer.displayCount = 1;
+        currentPlayer.drawPile = List.of(backCard("d1"), backCard("d2"));
+        PublicCard face = new PublicCard();
+        face.id = "d0";
+        face.libraryId = "lib";
+        face.pmvId = 2L;
+        face.imageUrl = "/cards/lib/cards/2a.jpg";
+        face.backUrl = "/cards/lib/back.png";
+        face.playedSeq = 6;
+        currentPlayer.displayPile = List.of(face);
+
+        JsonNode delta = encoder.encodeDelta(previous, current);
+        JsonNode patch = delta.path("pl").get(0);
+
+        assertEquals("p0", patch.path("id").asText());
+        assertTrue(patch.has("dr"), "non-play pile patches must be absolute for idempotency");
+        assertTrue(patch.has("dp"), "non-play pile patches must be absolute for idempotency");
+        assertFalse(patch.has("drm"));
+        assertFalse(patch.has("dpa"));
+    }
+
+    @Test
+    void bellPatchReissuesDrawPileWhenDisplayPileClears() {
+        PublicGame previous = samplePublicGame(2, 6);
+        PublicPlayer player = previous.players.get(0);
+        player.drawCount = 2;
+        player.drawPile = List.of(backCard("a0"), backCard("a1"));
+        player.displayCount = 1;
+        player.displayPile = List.of(faceCard("shown", 2L));
+
+        PublicGame current = samplePublicGame(2, 6);
+        current.bellCount = previous.bellCount + 1;
+        PublicPlayer currentPlayer = current.players.get(0);
+        currentPlayer.drawCount = 2;
+        currentPlayer.drawPile = List.of(backCard("a0"), backCard("a1"));
+        currentPlayer.displayCount = 0;
+        currentPlayer.displayPile = List.of();
+
+        JsonNode delta = encoder.encodeDelta(previous, current);
+        JsonNode patch = delta.path("pl").get(0);
+
+        assertEquals("p0", patch.path("id").asText());
+        assertTrue(patch.has("dp"), "bell patches must clear the display pile explicitly");
+        assertEquals(0, patch.path("dp").size());
+        assertTrue(patch.has("dr"), "bell patches must reissue the real visible draw pile");
+        assertEquals(2, patch.path("dr").size());
+        assertEquals("a0", patch.path("dr").get(0).path("i").asText());
+    }
+
     private static byte[] gzipJson(byte[] raw) throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (GZIPOutputStream gzip = new GZIPOutputStream(baos)) {
@@ -223,6 +287,16 @@ class GameSyncEncoderTest {
         c.id = id;
         c.backUrl = "/cards/lib/back.png";
         c.libraryId = "lib";
+        return c;
+    }
+
+    private static PublicCard faceCard(String id, Long pmvId) {
+        PublicCard c = new PublicCard();
+        c.id = id;
+        c.libraryId = "lib";
+        c.pmvId = pmvId;
+        c.imageUrl = "/cards/lib/cards/" + pmvId + "a.jpg";
+        c.backUrl = "/cards/lib/back.png";
         return c;
     }
 

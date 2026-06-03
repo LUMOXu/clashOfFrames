@@ -10,6 +10,33 @@ describe("applyGameSync", () => {
     expect(result?.playCount).toBe(2);
   });
 
+  it("does not let a stale full snapshot erase newer logs", () => {
+    const prev: PublicGame = {
+      id: "g1",
+      status: "playing",
+      playCount: 4,
+      bellCount: 1,
+      logs: [
+        { id: "ring", text: "ring", at: 4 },
+        { id: "play", text: "play", at: 3 },
+      ],
+    };
+
+    const result = applyGameSync(prev, {
+      full: {
+        id: "g1",
+        status: "playing",
+        playCount: 3,
+        bellCount: 0,
+        logs: [{ id: "play", text: "play", at: 3 }],
+      },
+    });
+
+    expect(result?.playCount).toBe(4);
+    expect(result?.bellCount).toBe(1);
+    expect(result?.logs?.map((log) => log.id)).toEqual(["ring", "play"]);
+  });
+
   it("merges partial delta", () => {
     const prev: PublicGame = { id: "g1", status: "playing", playCount: 1, turnIndex: 0 };
     const result = applyGameSync(prev, { ti: 1, pc: 2 });
@@ -268,5 +295,44 @@ describe("applyGameSync", () => {
     expect(result?.players?.[0]?.drawPile?.map((c) => c.id)).toEqual(["c1"]);
     expect(result?.players?.[0]?.displayPile).toHaveLength(2);
     expect(result?.players?.[0]?.displayPile?.[1]?.imageUrl).toContain("/cards/deck-a/2/a.jpg");
+  });
+
+  it("does not apply duplicate relative player pile patches twice", () => {
+    const prev: PublicGame = {
+      id: "g1",
+      status: "playing",
+      playCount: 6,
+      settings: { libraryIds: ["deck-a"] },
+      players: [
+        {
+          clientId: "a",
+          username: "A",
+          drawCount: 3,
+          displayCount: 0,
+          drawPile: [{ id: "c0" }, { id: "c1" }, { id: "c2" }],
+          displayPile: [],
+        },
+      ],
+    };
+    const sync = {
+      pc: 6,
+      pl: [
+        {
+          id: "a",
+          dc: 2,
+          xc: 1,
+          drm: 1,
+          dpa: { i: "c0", l: "deck-a", p: 2, s: 6 },
+        },
+      ],
+    };
+
+    const once = applyGameSync(prev, sync);
+    const twice = applyGameSync(once, sync);
+
+    expect(twice?.players?.[0]?.drawCount).toBe(2);
+    expect(twice?.players?.[0]?.drawPile?.map((card) => card.id)).toEqual(["c1", "c2"]);
+    expect(twice?.players?.[0]?.displayCount).toBe(1);
+    expect(twice?.players?.[0]?.displayPile?.map((card) => card.id)).toEqual(["c0"]);
   });
 });
