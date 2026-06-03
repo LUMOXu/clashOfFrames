@@ -5,6 +5,7 @@ import com.lumoxu.cof.service.DeckCatalogImportService;
 import com.lumoxu.cof.service.StateJsonMigrationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
@@ -19,14 +20,17 @@ public class CofImportRunner implements ApplicationRunner {
     private final DeckCatalogImportService deckCatalogImportService;
     private final ComputerPlayerImportService computerPlayerImportService;
     private final StateJsonMigrationService stateJsonMigrationService;
+    private final boolean bootstrapDefaultDecks;
 
     public CofImportRunner(
             DeckCatalogImportService deckCatalogImportService,
             ComputerPlayerImportService computerPlayerImportService,
-            StateJsonMigrationService stateJsonMigrationService) {
+            StateJsonMigrationService stateJsonMigrationService,
+            @Value("${cof.bootstrap-default-decks:true}") boolean bootstrapDefaultDecks) {
         this.deckCatalogImportService = deckCatalogImportService;
         this.computerPlayerImportService = computerPlayerImportService;
         this.stateJsonMigrationService = stateJsonMigrationService;
+        this.bootstrapDefaultDecks = bootstrapDefaultDecks;
     }
 
     @Override
@@ -38,6 +42,16 @@ public class CofImportRunner implements ApplicationRunner {
             }
         } catch (Exception ex) {
             log.warn("Computer player config sync skipped: {}", ex.getMessage());
+        }
+        if (bootstrapDefaultDecks) {
+            try {
+                int bootstrapped = deckCatalogImportService.bootstrapDefaultDecks();
+                if (bootstrapped > 0) {
+                    log.info("Bootstrapped {} default card deck(s) (基础包/拓展包).", bootstrapped);
+                }
+            } catch (Exception ex) {
+                log.warn("Default card deck bootstrap skipped: {}", ex.getMessage());
+            }
         }
         if (args.containsOption("import-decks")) {
             int count = deckCatalogImportService.importAllDecks();

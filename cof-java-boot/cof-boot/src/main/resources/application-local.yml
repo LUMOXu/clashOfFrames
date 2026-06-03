@@ -12,4 +12,5 @@ spring:
       database: 2
 
 cof:
-  resource-root: ${COF_RESOURCE_ROOT:../cof-resource}
+  resource-root: ${COF_RESOURCE_ROOT:../../cof-resource}
+  bootstrap-default-decks: true

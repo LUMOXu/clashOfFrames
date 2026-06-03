@@ -38,3 +38,4 @@ mybatis-plus:
 
 cof:
   resource-root: ${COF_RESOURCE_ROOT:../cof-resource}
+  bootstrap-default-decks: true

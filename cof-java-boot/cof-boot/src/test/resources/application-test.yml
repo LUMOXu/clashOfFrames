@@ -18,3 +18,4 @@ mybatis-plus:
 
 cof:
   resource-root: ${java.io.tmpdir}/cof-resource-test
+  bootstrap-default-decks: false
