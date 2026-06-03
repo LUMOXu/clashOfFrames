@@ -15,7 +15,7 @@ public class GameAnimation {
     public Integer moveMs;
     public Integer staggerMs;
     public int durationMs;
-    public Integer pmvId;
+    public Long pmvId;
     public String pmvName;
     public List<String> matchCardIds;
     public List<AnimationPile> piles = new ArrayList<>();

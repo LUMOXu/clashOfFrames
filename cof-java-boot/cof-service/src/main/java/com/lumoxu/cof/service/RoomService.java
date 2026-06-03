@@ -2,6 +2,7 @@ package com.lumoxu.cof.service;
 
 import com.lumoxu.cof.common.api.CofException;
 import com.lumoxu.cof.common.api.ErrorCode;
+import com.lumoxu.cof.engine.Card;
 import com.lumoxu.cof.engine.Game;
 import com.lumoxu.cof.engine.GameCore;
 import com.lumoxu.cof.engine.GameSettings;
@@ -182,10 +183,16 @@ public class RoomService {
         Room engineRoom = new Room();
         engineRoom.id = room.id;
         engineRoom.settings = room.settings;
-        Game game = gameRuntimeService.createGame(
-                engineRoom,
-                players,
-                deckCatalogService.expandedCardsFromRoom(room.id, room.settings));
+        List<Card> playableCards = deckCatalogService.expandedCardsFromRoom(room.id, room.settings);
+        if (playableCards.isEmpty()) {
+            throw new CofException(ErrorCode.CONFLICT, "所选牌组没有可用的已审核卡牌，无法开局。");
+        }
+        if (playableCards.size() < players.size()) {
+            throw new CofException(
+                    ErrorCode.CONFLICT,
+                    "卡牌数量不足：至少需要 " + players.size() + " 张，当前仅有 " + playableCards.size() + " 张。");
+        }
+        Game game = gameRuntimeService.createGame(engineRoom, players, playableCards);
         deckCatalogService.attachCatalogToGame(game.id, room.id);
         room.status = "loading";
         room.gameId = game.id;

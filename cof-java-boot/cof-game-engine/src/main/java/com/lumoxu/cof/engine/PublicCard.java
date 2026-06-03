@@ -4,7 +4,7 @@ public class PublicCard {
 
     public String id;
     public String libraryId;
-    public Integer pmvId;
+    public Long pmvId;
     public String pmvName;
     public String shot;
     public String imageUrl;

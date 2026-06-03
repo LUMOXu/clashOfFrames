@@ -5,7 +5,8 @@ public class Card {
     public String id;
     public String libraryId;
     public String fileName;
-    public Integer pmvId;
+    /** Global {@code cof_pmv.id} used for match grouping in play. */
+    public Long pmvId;
     public String pmvName;
     public String shot;
     public String imageUrl;

@@ -48,7 +48,7 @@ public class PublicGame {
         public String type;
         public String by;
         public String username;
-        public Integer pmvId;
+        public Long pmvId;
         public String pmvName;
         public List<PublicTopEntry> cards;
         public Integer wonCards;
@@ -72,7 +72,7 @@ public class PublicGame {
         public Integer moveMs;
         public Integer staggerMs;
         public int durationMs;
-        public Integer pmvId;
+        public Long pmvId;
         public String pmvName;
         public List<String> matchCardIds;
         public List<PublicAnimationPile> piles = new ArrayList<>();

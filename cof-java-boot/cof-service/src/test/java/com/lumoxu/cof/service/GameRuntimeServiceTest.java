@@ -35,7 +35,7 @@ class GameRuntimeServiceTest {
         for (int i = 0; i < 8; i++) {
             Card card = new Card();
             card.id = "c" + i;
-            card.pmvId = 1;
+            card.pmvId = 1L;
             cards.add(card);
         }
         Game game = gameRuntimeService.createGame(room, List.of(player), cards);

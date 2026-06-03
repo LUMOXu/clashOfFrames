@@ -64,7 +64,7 @@ class GameSyncEncoderTest {
             Card c = new Card();
             c.id = "card-" + i;
             c.libraryId = "lib";
-            c.pmvId = (i % 2) + 1;
+            c.pmvId = (long) ((i % 2) + 1);
             c.pmvName = "PMV " + c.pmvId;
             c.shot = "a";
             c.imageUrl = "/cards/lib/cards/" + c.pmvId + "a.png";
@@ -95,7 +95,7 @@ class GameSyncEncoderTest {
             Card c = new Card();
             c.id = "card-" + i;
             c.libraryId = "lib";
-            c.pmvId = (i % 8) + 1;
+            c.pmvId = (long) ((i % 8) + 1);
             c.pmvName = "PMV " + c.pmvId;
             c.shot = "a";
             c.imageUrl = "/cards/lib/cards/" + c.pmvId + "a.png";
@@ -176,7 +176,7 @@ class GameSyncEncoderTest {
             if (p.displayCount > 0) {
                 PublicCard face = new PublicCard();
                 face.id = "c" + i;
-                face.pmvId = i % 5;
+                face.pmvId = (long) (i % 5);
                 face.imageUrl = "/cards/lib/cards/" + i + "a.jpg";
                 face.backUrl = "/cards/lib/back.png";
                 p.displayPile = List.of(face);

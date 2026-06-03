@@ -23,6 +23,13 @@ function encodePathSegment(segment: string): string {
     .join("/");
 }
 
+function deckBackUrl(libraryId: string): string {
+  if (/^\d+$/.test(libraryId)) {
+    return `/cards/backs/${libraryId}.jpg`;
+  }
+  return `/cards/${encodePathSegment(libraryId)}/back.png`;
+}
+
 function canonicalCardUrls(
   lib: string,
   pmvId: number,
@@ -32,7 +39,7 @@ function canonicalCardUrls(
   const ext = "jpg";
   return {
     imageUrl: `/cards/${deck}/${pmvId}/${shot}.${ext}`,
-    backUrl: `/cards/${deck}/back.png`,
+    backUrl: deckBackUrl(lib),
   };
 }
 

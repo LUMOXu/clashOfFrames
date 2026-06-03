@@ -298,7 +298,7 @@ public class DeckCatalogService {
                     Card card = new Card();
                     card.id = copies == 1 ? cardDto.id : cardDto.id + "#copy" + (copy + 1);
                     card.libraryId = cardDto.libraryId;
-                    card.pmvId = (int) cardDto.pmvId;
+                    card.pmvId = cardDto.pmvId;
                     card.pmvName = cardDto.pmvName;
                     card.imageUrl = cardDto.imageUrl;
                     card.backUrl = cardDto.backUrl;

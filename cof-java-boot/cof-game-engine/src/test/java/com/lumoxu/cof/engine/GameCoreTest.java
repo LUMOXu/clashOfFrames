@@ -20,7 +20,7 @@ class GameCoreTest {
         card.id = id;
         card.libraryId = "lib";
         card.fileName = pmvId + "a.png";
-        card.pmvId = pmvId;
+        card.pmvId = (long) pmvId;
         card.pmvName = "PMV " + pmvId;
         card.shot = "a";
         card.imageUrl = "/cards/lib/cards/" + pmvId + "a.png";
@@ -367,7 +367,7 @@ class GameCoreTest {
         animation.highlightMs = 3000;
         animation.moveMs = 1200;
         animation.durationMs = 4200;
-        animation.pmvId = 1;
+        animation.pmvId = 1L;
         animation.pmvName = "PMV 1";
         animation.matchCardIds = List.of("anim-19");
         AnimationPile pile = new AnimationPile();

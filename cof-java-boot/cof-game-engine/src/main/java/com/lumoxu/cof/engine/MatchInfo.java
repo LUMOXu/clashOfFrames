@@ -8,7 +8,7 @@ public class MatchInfo {
     public String type;
     public String by;
     public String username;
-    public Integer pmvId;
+    public Long pmvId;
     public String pmvName;
     public List<TopCardEntry> cards;
     public Integer wonCards;

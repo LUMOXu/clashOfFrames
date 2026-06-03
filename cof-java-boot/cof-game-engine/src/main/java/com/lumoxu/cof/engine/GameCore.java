@@ -353,7 +353,7 @@ public final class GameCore {
     }
 
     public static MatchInfo findMatchFromTopCards(List<TopCardEntry> topCards) {
-        Map<Integer, List<TopCardEntry>> groups = new HashMap<>();
+        Map<Long, List<TopCardEntry>> groups = new HashMap<>();
         for (TopCardEntry entry : topCards) {
             if (entry.card == null || entry.card.pmvId == null) {
                 continue;
