@@ -6,111 +6,135 @@ import com.lumoxu.cof.common.api.ErrorCode;
 import com.lumoxu.cof.common.catalog.ReviewStatus;
 import com.lumoxu.cof.domain.entity.CofCard;
 import com.lumoxu.cof.domain.entity.CofDeck;
-import com.lumoxu.cof.domain.entity.CofDeckPmv;
+import com.lumoxu.cof.domain.entity.CofPmv;
 import com.lumoxu.cof.domain.mapper.CofCardMapper;
 import com.lumoxu.cof.domain.mapper.CofDeckMapper;
-import com.lumoxu.cof.domain.mapper.CofDeckPmvMapper;
+import com.lumoxu.cof.domain.mapper.CofPmvMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-
-/**
- * Publishes user-submitted decks into the public catalog after review.
- * Keeps {@code cof_deck.enabled} and child review flags consistent so approved content
- * appears in {@link DeckCatalogService#listPublicSummaries()} and match card pools.
- */
 @Service
 public class DeckCatalogReviewService {
 
     private final CofDeckMapper deckMapper;
-    private final CofDeckPmvMapper deckPmvMapper;
+    private final CofPmvMapper pmvMapper;
     private final CofCardMapper cardMapper;
     private final DeckCatalogService deckCatalogService;
+    private final CatalogNameGuard nameGuard;
 
     public DeckCatalogReviewService(
             CofDeckMapper deckMapper,
-            CofDeckPmvMapper deckPmvMapper,
+            CofPmvMapper pmvMapper,
             CofCardMapper cardMapper,
-            DeckCatalogService deckCatalogService) {
+            DeckCatalogService deckCatalogService,
+            CatalogNameGuard nameGuard) {
         this.deckMapper = deckMapper;
-        this.deckPmvMapper = deckPmvMapper;
+        this.pmvMapper = pmvMapper;
         this.cardMapper = cardMapper;
         this.deckCatalogService = deckCatalogService;
+        this.nameGuard = nameGuard;
     }
 
     @Transactional
     public void approveDeck(long deckId) {
         CofDeck deck = requireDeck(deckId);
-        long now = System.currentTimeMillis();
-        deck.reviewStatus = ReviewStatus.APPROVED;
-        deck.enabled = true;
-        deck.updatedAt = now;
+        if (CatalogRevisionHelper.hasPendingEdit(deck)) {
+            if (deck.pendingName != null) {
+                nameGuard.ensureDeckNameAvailable(deck.pendingName, deck.id);
+            }
+            CatalogRevisionHelper.approveDeckRevision(deck);
+        } else if (ReviewStatus.PENDING.equalsIgnoreCase(deck.reviewStatus)) {
+            CatalogRevisionHelper.approveDeckInitial(deck);
+        }
         deckMapper.updateById(deck);
-        approvePendingChildren(deckId);
         deckCatalogService.bustCachesForDeck(deckId);
     }
 
     @Transactional
     public void rejectDeck(long deckId) {
         CofDeck deck = requireDeck(deckId);
-        deck.reviewStatus = ReviewStatus.REJECTED;
-        deck.enabled = false;
-        deck.updatedAt = System.currentTimeMillis();
+        if (CatalogRevisionHelper.hasPendingEdit(deck)) {
+            CatalogRevisionHelper.rejectDeckRevision(deck);
+        } else {
+            deck.reviewStatus = ReviewStatus.REJECTED;
+            CatalogRevisionHelper.touch(deck);
+        }
         deckMapper.updateById(deck);
         deckCatalogService.bustCachesForDeck(deckId);
     }
 
     @Transactional
-    public void approvePmv(long pmvRowId) {
-        CofDeckPmv pmv = requirePmvRow(pmvRowId);
-        pmv.reviewStatus = ReviewStatus.APPROVED;
-        deckPmvMapper.updateById(pmv);
-        tryPublishDeck(pmv.deckId);
-        deckCatalogService.bustCachesForDeck(pmv.deckId);
+    public void approvePmv(long pmvId) {
+        CofPmv pmv = requirePmv(pmvId);
+        if (CatalogRevisionHelper.hasPendingEdit(pmv)) {
+            if (pmv.pendingName != null) {
+                nameGuard.ensurePmvNameAvailable(pmv.pendingName, pmv.id);
+            }
+            CatalogRevisionHelper.approvePmvRevision(pmv);
+        } else if (ReviewStatus.PENDING.equalsIgnoreCase(pmv.reviewStatus)) {
+            CatalogRevisionHelper.approvePmvInitial(pmv);
+        }
+        pmvMapper.updateById(pmv);
+        deckCatalogService.bustCaches();
     }
 
     @Transactional
-    public void rejectPmv(long pmvRowId) {
-        CofDeckPmv pmv = requirePmvRow(pmvRowId);
-        pmv.reviewStatus = ReviewStatus.REJECTED;
-        deckPmvMapper.updateById(pmv);
-        deckCatalogService.bustCachesForDeck(pmv.deckId);
+    public void rejectPmv(long pmvId) {
+        CofPmv pmv = requirePmv(pmvId);
+        if (CatalogRevisionHelper.hasPendingEdit(pmv)) {
+            CatalogRevisionHelper.rejectPmvRevision(pmv);
+        } else {
+            pmv.reviewStatus = ReviewStatus.REJECTED;
+            CatalogRevisionHelper.touch(pmv);
+        }
+        pmvMapper.updateById(pmv);
+        deckCatalogService.bustCaches();
     }
 
     @Transactional
-    public void approveCard(long cardRowId) {
-        CofCard card = requireCardRow(cardRowId);
-        card.reviewStatus = ReviewStatus.APPROVED;
+    public void approveCard(long cardId) {
+        CofCard card = requireCard(cardId);
+        CofDeck deck = requireDeck(card.deckId);
+        CofPmv pmv = requirePmv(card.pmvId);
+        if (!CatalogRevisionHelper.isApprovedLive(deck) || !CatalogRevisionHelper.isApprovedLive(pmv)) {
+            throw new CofException(ErrorCode.CONFLICT, "须先通过牌组与 PMV 审核，才能通过卡牌。");
+        }
+        if (CatalogRevisionHelper.hasPendingEdit(card)) {
+            if (card.pendingImageUrl != null) {
+                ensureImageUrlAvailable(card.pendingImageUrl, card.id);
+            }
+            CatalogRevisionHelper.approveCardRevision(card);
+        } else if (ReviewStatus.PENDING.equalsIgnoreCase(card.reviewStatus)) {
+            CatalogRevisionHelper.approveCardInitial(card);
+        }
         cardMapper.updateById(card);
-        tryPublishDeck(card.deckId);
         deckCatalogService.bustCachesForDeck(card.deckId);
     }
 
     @Transactional
-    public void rejectCard(long cardRowId) {
-        CofCard card = requireCardRow(cardRowId);
-        card.reviewStatus = ReviewStatus.REJECTED;
+    public void rejectCard(long cardId) {
+        CofCard card = requireCard(cardId);
+        if (CatalogRevisionHelper.hasPendingEdit(card)) {
+            CatalogRevisionHelper.rejectCardRevision(card);
+        } else {
+            card.reviewStatus = ReviewStatus.REJECTED;
+            CatalogRevisionHelper.touch(card);
+        }
         cardMapper.updateById(card);
         deckCatalogService.bustCachesForDeck(card.deckId);
     }
 
-    /**
-     * Fixes decks that are marked approved but not enabled, promotes decks whose PMVs/cards
-     * are all approved, and clears catalog caches.
-     */
     @Transactional
     public void reconcileAndRefreshCaches() {
-        for (CofDeck deck : deckMapper.selectList(new QueryWrapper<>())) {
+        for (CofDeck deck : deckMapper.selectList(new QueryWrapper<CofDeck>().isNull("deleted_at"))) {
             if (deck == null || deck.id == null) {
                 continue;
             }
             if (ReviewStatus.isApproved(deck.reviewStatus) && !Boolean.TRUE.equals(deck.enabled)) {
                 deck.enabled = true;
-                deck.updatedAt = System.currentTimeMillis();
+                CatalogRevisionHelper.touch(deck);
                 deckMapper.updateById(deck);
             }
-            tryPublishDeck(deck.id);
         }
         deckCatalogService.bustCaches();
     }
@@ -119,90 +143,36 @@ public class DeckCatalogReviewService {
         deckCatalogService.bustCaches();
     }
 
-    private void approvePendingChildren(long deckId) {
-        for (CofDeckPmv pmv : deckPmvMapper.listByDeckId(deckId)) {
-            if (ReviewStatus.PENDING.equalsIgnoreCase(pmv.reviewStatus)) {
-                pmv.reviewStatus = ReviewStatus.APPROVED;
-                deckPmvMapper.updateById(pmv);
-            }
+    private void ensureImageUrlAvailable(String imageUrl, Long excludeCardId) {
+        CofCard byUrl = cardMapper.findAliveByImageUrl(imageUrl);
+        if (byUrl != null && (excludeCardId == null || !excludeCardId.equals(byUrl.id))) {
+            throw new CofException(ErrorCode.CONFLICT, "图片地址已被占用。");
         }
-        for (CofCard card : cardMapper.listByDeckId(deckId)) {
-            if (ReviewStatus.PENDING.equalsIgnoreCase(card.reviewStatus)) {
-                card.reviewStatus = ReviewStatus.APPROVED;
-                cardMapper.updateById(card);
-            }
+        CofCard byPending = cardMapper.findAliveByPendingImageUrl(imageUrl);
+        if (byPending != null && (excludeCardId == null || !excludeCardId.equals(byPending.id))) {
+            throw new CofException(ErrorCode.CONFLICT, "图片地址已被其他待审修改占用。");
         }
-    }
-
-    /**
-     * When every PMV and card in the deck is approved (and there is playable content),
-     * mark the deck approved and enabled so it appears in public catalog APIs.
-     */
-    void tryPublishDeck(Long deckId) {
-        if (deckId == null) {
-            return;
-        }
-        CofDeck deck = deckMapper.selectById(deckId);
-        if (deck == null || ReviewStatus.REJECTED.equalsIgnoreCase(deck.reviewStatus)) {
-            return;
-        }
-        if (ReviewStatus.isApproved(deck.reviewStatus) && Boolean.TRUE.equals(deck.enabled)) {
-            return;
-        }
-        List<CofDeckPmv> pmvs = deckPmvMapper.listByDeckId(deckId);
-        List<CofCard> cards = cardMapper.listByDeckId(deckId);
-        if (cards.isEmpty()) {
-            return;
-        }
-        if (pmvs.isEmpty()) {
-            return;
-        }
-        if (!allApproved(pmvs) || !allApprovedCards(cards)) {
-            return;
-        }
-        deck.reviewStatus = ReviewStatus.APPROVED;
-        deck.enabled = true;
-        deck.updatedAt = System.currentTimeMillis();
-        deckMapper.updateById(deck);
-    }
-
-    private static boolean allApproved(List<CofDeckPmv> pmvs) {
-        for (CofDeckPmv pmv : pmvs) {
-            if (!ReviewStatus.isApproved(pmv.reviewStatus)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean allApprovedCards(List<CofCard> cards) {
-        for (CofCard card : cards) {
-            if (!ReviewStatus.isApproved(card.reviewStatus)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private CofDeck requireDeck(long deckId) {
         CofDeck deck = deckMapper.selectById(deckId);
-        if (deck == null) {
+        if (deck == null || !CatalogRevisionHelper.isAlive(deck)) {
             throw new CofException(ErrorCode.NOT_FOUND, "牌组不存在。");
         }
         return deck;
     }
 
-    private CofDeckPmv requirePmvRow(long pmvRowId) {
-        CofDeckPmv pmv = deckPmvMapper.selectById(pmvRowId);
-        if (pmv == null) {
+    private CofPmv requirePmv(long pmvId) {
+        CofPmv pmv = pmvMapper.selectById(pmvId);
+        if (pmv == null || !CatalogRevisionHelper.isAlive(pmv)) {
             throw new CofException(ErrorCode.NOT_FOUND, "PMV 不存在。");
         }
         return pmv;
     }
 
-    private CofCard requireCardRow(long cardRowId) {
-        CofCard card = cardMapper.selectById(cardRowId);
-        if (card == null) {
+    private CofCard requireCard(long cardId) {
+        CofCard card = cardMapper.selectById(cardId);
+        if (card == null || !CatalogRevisionHelper.isAlive(card)) {
             throw new CofException(ErrorCode.NOT_FOUND, "卡牌不存在。");
         }
         return card;

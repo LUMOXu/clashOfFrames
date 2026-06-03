@@ -1,6 +1,5 @@
 package com.lumoxu.cof.boot.config;
 
-import com.lumoxu.cof.domain.mapper.CofDeckMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -12,18 +11,12 @@ import java.nio.file.Path;
 @Configuration
 public class CofWebConfig implements WebMvcConfigurer {
 
-    private final CofDeckMapper deckMapper;
-
     @Value("${cof.resource-root:../cof-resource}")
     private String resourceRoot;
 
     /** Comma-separated patterns, e.g. http://*:9001 for nginx front on any host. */
     @Value("${cof.cors.allowed-origin-patterns:http://localhost:*,http://127.0.0.1:*,http://*:9001}")
     private String corsAllowedOriginPatterns;
-
-    public CofWebConfig(CofDeckMapper deckMapper) {
-        this.deckMapper = deckMapper;
-    }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
@@ -47,7 +40,7 @@ public class CofWebConfig implements WebMvcConfigurer {
         registry.addResourceHandler("/cards/**")
                 .addResourceLocations(location + "/cards/")
                 .resourceChain(true)
-                .addResolver(new DeckCardResourceResolver(cardsRoot, deckMapper));
+                .addResolver(new DeckCardResourceResolver(cardsRoot));
         registry.addResourceHandler("/assets/**")
                 .addResourceLocations(location + "/assets/");
         registry.addResourceHandler("/audio/**")

@@ -78,16 +78,11 @@ function pmvTitle(pmv: CardViewerPmv): string {
           <div>
             <h3>{{ activeLibrary.name }}</h3>
             <p class="status-line">
-              整理者：{{ recordField(activeLibrary, "curator", "未填写") }} ·
               {{ recordField(activeLibrary, "cardCount", 0) }} 张 ·
               {{ recordField(activeLibrary, "pmvCount", 0) }} PMV
-              <template v-if="activeLibrary.version"> · 版本 {{ activeLibrary.version }}</template>
             </p>
             <p class="muted">{{ activeLibrary.description || "暂无说明" }}</p>
-            <p v-if="activeLibrary.link">
-              <a :href="activeLibrary.link" target="_blank" rel="noopener noreferrer">卡组链接</a>
-            </p>
-            <p class="muted">文件夹：{{ activeLibrary.folderName || activeLibrary.id }}</p>
+            <p class="muted">牌组 ID：{{ activeLibrary.id }}</p>
           </div>
         </div>
 

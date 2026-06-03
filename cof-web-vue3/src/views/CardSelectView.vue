@@ -43,7 +43,6 @@ function openViewer(): void {
             <span>
               <strong>{{ recordName(lib, `牌库 ${index + 1}`) }}</strong>
               <span class="pill">{{ recordField(lib, "cardCount", 0) }} 张 / {{ recordField(lib, "pmvCount", 0) }} PMV</span>
-              <span class="muted">整理者：{{ recordField(lib, "curator", "未填写") }}</span>
             </span>
             <input v-model="selected" type="checkbox" :value="recordId(lib, index)" />
           </label>

@@ -21,8 +21,8 @@ class CofDeckMapperTest {
     private CofDeckMapper deckMapper;
 
     @Test
-    void listEnabledDecksIncludesSeedData() {
-        List<CofDeck> decks = deckMapper.listEnabledDecks();
+    void listPlayableDecksIncludesSeedData() {
+        List<CofDeck> decks = deckMapper.listPlayableDecks();
         assertFalse(decks.isEmpty());
     }
 }

@@ -1,29 +1,30 @@
 package com.lumoxu.cof.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumoxu.cof.common.catalog.ReviewStatus;
 import com.lumoxu.cof.domain.entity.CofCard;
 import com.lumoxu.cof.domain.entity.CofDeck;
-import com.lumoxu.cof.domain.entity.CofDeckPmv;
+import com.lumoxu.cof.domain.entity.CofPmv;
 import com.lumoxu.cof.domain.mapper.CofCardMapper;
 import com.lumoxu.cof.domain.mapper.CofDeckMapper;
-import com.lumoxu.cof.domain.mapper.CofDeckPmvMapper;
+import com.lumoxu.cof.domain.mapper.CofPmvMapper;
 import com.lumoxu.cof.engine.GameSettings;
 import com.lumoxu.cof.service.model.CardLibraryDto;
-import com.lumoxu.cof.service.model.CatalogBundleDto;
+import com.lumoxu.cof.service.redis.JsonRedisOps;
 import com.lumoxu.cof.service.redis.RedisKeys;
-import com.lumoxu.cof.service.support.TestRedisSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -32,127 +33,82 @@ class DeckCatalogServiceTest {
     @Mock
     private CofDeckMapper deckMapper;
     @Mock
-    private CofDeckPmvMapper deckPmvMapper;
+    private CofPmvMapper pmvMapper;
     @Mock
     private CofCardMapper cardMapper;
+    @Mock
+    private JsonRedisOps redis;
 
     private DeckCatalogService deckCatalogService;
-    private com.lumoxu.cof.service.redis.JsonRedisOps redis;
 
     @BeforeEach
     void setUp() {
-        redis = TestRedisSupport.memoryJsonRedis(new ObjectMapper());
-        deckCatalogService = new DeckCatalogService(deckMapper, deckPmvMapper, cardMapper, redis);
+        deckCatalogService = new DeckCatalogService(deckMapper, pmvMapper, cardMapper, redis);
     }
 
     @Test
-    void warmRoomCatalogWritesRedisKey() {
-        CofDeck deck = new CofDeck();
-        deck.id = 1L;
-        deck.name = "Test";
-        deck.folderName = "test-deck";
-        deck.backUrl = "/cards/1/back.png";
-        deck.cardCount = 1;
-        deck.pmvCount = 1;
-        deck.enabled = true;
-        deck.reviewStatus = ReviewStatus.APPROVED;
+    void loadDeckBundleBuildsPlayableCards() {
+        CofDeck deck = approvedDeck(1L, "Test Deck");
+        CofPmv pmv = approvedPmv(10L, "PMV");
+        CofCard card = approvedCard(100L, 1L, 10L);
         when(deckMapper.selectById(1L)).thenReturn(deck);
-        CofDeckPmv pmv = new CofDeckPmv();
-        pmv.pmvId = 10L;
-        pmv.deckId = 1L;
-        pmv.matchId = 1;
-        pmv.name = "PMV 1";
-        pmv.reviewStatus = ReviewStatus.APPROVED;
-        when(deckPmvMapper.listByDeckId(1L)).thenReturn(List.of(pmv));
-        when(deckPmvMapper.findByDeckIdAndMatchId(1L, 1)).thenReturn(pmv);
-        CofCard card = new CofCard();
-        card.cardId = 100L;
-        card.deckId = 1L;
-        card.pmvId = 10L;
-        card.shot = "a";
-        card.imageUrl = "/cards/1/1/a.jpg";
-        card.cardUid = "1/1/a";
-        card.reviewStatus = ReviewStatus.APPROVED;
-        when(cardMapper.listByDeckId(1L)).thenReturn(List.of(card));
+        when(pmvMapper.listAlive()).thenReturn(List.of(pmv));
+        when(cardMapper.listAliveByDeckId(1L)).thenReturn(List.of(card));
+        when(cardMapper.countAliveByDeckId(1L)).thenReturn(1L);
+        when(cardMapper.countDistinctPmvByDeckId(1L)).thenReturn(1L);
+        when(redis.get(eq(RedisKeys.deckBundle("1")), eq(CardLibraryDto.class))).thenReturn(Optional.empty());
 
-        GameSettings settings = GameSettings.defaultSettings();
-        settings.libraryIds = List.of("1");
-        deckCatalogService.warmRoomCatalog("room-1", settings);
-
-        CatalogBundleDto bundle = redis.get(RedisKeys.roomCatalog("room-1"), CatalogBundleDto.class).orElseThrow();
-        assertEquals(1, bundle.libraries.size());
-        assertEquals("test-deck", bundle.libraries.get(0).id);
+        CardLibraryDto bundle = deckCatalogService.loadDeckBundle(1L);
+        assertEquals("1", bundle.id);
+        assertEquals(1, bundle.cards.size());
+        assertEquals("100", bundle.cards.get(0).id);
+        assertEquals(10L, bundle.cards.get(0).pmvId);
+        assertTrue(bundle.cards.get(0).approvedForPlay);
     }
 
     @Test
-    void loadDeckBundleCachesInRedis() {
+    void resolveDeckIdAcceptsNumericString() {
+        assertEquals(42L, deckCatalogService.resolveDeckId("42"));
+    }
+
+    @Test
+    void libraryMatchesUsesNumericId() {
+        CardLibraryDto lib = new CardLibraryDto();
+        lib.id = "7";
+        assertTrue(deckCatalogService.isLibrarySelected(lib, List.of("7")));
+    }
+
+    private static CofDeck approvedDeck(long id, String name) {
         CofDeck deck = new CofDeck();
-        deck.id = 2L;
-        deck.name = "Cached";
-        deck.folderName = "cached-deck";
-        deck.backUrl = "/cards/2/back.png";
+        deck.id = id;
+        deck.name = name;
+        deck.backUrl = "/cards/backs/" + id + ".jpg";
         deck.enabled = true;
         deck.reviewStatus = ReviewStatus.APPROVED;
-        when(deckMapper.selectById(2L)).thenReturn(deck);
-        when(deckPmvMapper.listByDeckId(2L)).thenReturn(List.of());
-        when(cardMapper.listByDeckId(2L)).thenReturn(List.of());
-
-        CardLibraryDto first = deckCatalogService.loadDeckBundle(2L);
-        assertEquals("cached-deck", first.id);
-        CardLibraryDto second = deckCatalogService.loadDeckBundle(2L);
-        assertEquals(first.id, second.id);
-        assertTrue(redis.get(RedisKeys.deckBundle("2"), CardLibraryDto.class).isPresent());
+        deck.createdAt = Instant.now();
+        deck.updatedAt = Instant.now();
+        return deck;
     }
 
-    @Test
-    void expandedCardsFromRoomUsesCachedLibraries() {
-        CatalogBundleDto catalog = new CatalogBundleDto();
-        CardLibraryDto lib = new CardLibraryDto();
-        lib.id = "1";
-        CardLibraryDto.CardDto card = new CardLibraryDto.CardDto();
-        card.id = "1/1/a";
-        card.libraryId = "1";
-        card.pmvId = 1;
-        card.imageUrl = "/cards/1/1/a.jpg";
-        card.approvedForPlay = true;
-        lib.cards.add(card);
-        catalog.libraries.add(lib);
-        redis.set(RedisKeys.roomCatalog("room-x"), catalog, null);
-
-        GameSettings settings = GameSettings.defaultSettings();
-        settings.libraryIds = List.of("1");
-        assertFalse(deckCatalogService.expandedCardsFromRoom("room-x", settings).isEmpty());
+    private static CofPmv approvedPmv(long id, String name) {
+        CofPmv pmv = new CofPmv();
+        pmv.id = id;
+        pmv.name = name;
+        pmv.reviewStatus = ReviewStatus.APPROVED;
+        pmv.createdAt = Instant.now();
+        pmv.updatedAt = Instant.now();
+        return pmv;
     }
 
-    @Test
-    void expandedCardsMatchesNumericLibraryIdAgainstFolderPublicId() {
-        CatalogBundleDto catalog = new CatalogBundleDto();
-        CardLibraryDto lib = new CardLibraryDto();
-        lib.id = "folder-deck";
-        lib.folderName = "folder-deck";
-        CardLibraryDto.CardDto card = new CardLibraryDto.CardDto();
-        card.id = "folder-deck/1/a";
-        card.approvedForPlay = true;
-        lib.cards.add(card);
-        catalog.libraries.add(lib);
-        redis.set(RedisKeys.roomCatalog("room-num"), catalog, null);
-
-        CofDeck deck = new CofDeck();
-        deck.id = 42L;
-        deck.folderName = "folder-deck";
-        when(deckMapper.findByFolderName("folder-deck")).thenReturn(deck);
-
-        GameSettings settings = GameSettings.defaultSettings();
-        settings.libraryIds = List.of("42");
-        assertEquals(1, deckCatalogService.expandedCardsFromRoom("room-num", settings).size());
-    }
-
-    @Test
-    void resolveDeckIdAcceptsFolderName() {
-        CofDeck deck = new CofDeck();
-        deck.id = 3L;
-        deck.folderName = "legacy-folder";
-        when(deckMapper.findByFolderName("legacy-folder")).thenReturn(deck);
-        assertEquals(3L, deckCatalogService.resolveDeckId("legacy-folder"));
+    private static CofCard approvedCard(long id, long deckId, long pmvId) {
+        CofCard card = new CofCard();
+        card.id = id;
+        card.deckId = deckId;
+        card.pmvId = pmvId;
+        card.imageUrl = "/cards/" + id + ".jpg";
+        card.reviewStatus = ReviewStatus.APPROVED;
+        card.createdAt = Instant.now();
+        card.updatedAt = Instant.now();
+        return card;
     }
 }

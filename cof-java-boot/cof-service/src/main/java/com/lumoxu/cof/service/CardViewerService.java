@@ -1,7 +1,7 @@
 package com.lumoxu.cof.service;
 
-import com.lumoxu.cof.domain.entity.CofDeckPmv;
-import com.lumoxu.cof.domain.mapper.CofDeckPmvMapper;
+import com.lumoxu.cof.domain.entity.CofPmv;
+import com.lumoxu.cof.domain.mapper.CofPmvMapper;
 import com.lumoxu.cof.service.model.CardLibraryDto;
 import org.springframework.stereotype.Service;
 
@@ -21,11 +21,11 @@ import java.util.stream.Collectors;
 public class CardViewerService {
 
     private final DeckCatalogService deckCatalogService;
-    private final CofDeckPmvMapper deckPmvMapper;
+    private final CofPmvMapper pmvMapper;
 
-    public CardViewerService(DeckCatalogService deckCatalogService, CofDeckPmvMapper deckPmvMapper) {
+    public CardViewerService(DeckCatalogService deckCatalogService, CofPmvMapper pmvMapper) {
         this.deckCatalogService = deckCatalogService;
-        this.deckPmvMapper = deckPmvMapper;
+        this.pmvMapper = pmvMapper;
     }
 
     public Map<String, Object> buildViewerPayload(List<String> libraryIds) {
@@ -43,16 +43,13 @@ public class CardViewerService {
         assets.add("/assets/bell.png");
         assets.add("/assets/logo.png");
         List<Map<String, Object>> libraryPayload = new ArrayList<>();
+        Map<Long, CofPmv> pmvById = new HashMap<>();
+        for (CofPmv pmv : pmvMapper.listAlive()) {
+            pmvById.put(pmv.id, pmv);
+        }
         for (CardLibraryDto library : libraries) {
             if (library.backUrl != null) {
                 assets.add(library.backUrl);
-            }
-            Long deckId = deckCatalogService.resolveDeckId(library.id);
-            Map<Integer, CofDeckPmv> pmvMeta = new HashMap<>();
-            if (deckId != null) {
-                for (CofDeckPmv pmv : deckPmvMapper.listByDeckId(deckId)) {
-                    pmvMeta.put(pmv.matchId, pmv);
-                }
             }
             Map<String, Map<String, Object>> pmvGroups = new LinkedHashMap<>();
             if (library.cards != null) {
@@ -64,7 +61,7 @@ public class CardViewerService {
                     pmvGroups.computeIfAbsent(pmvKey, k -> {
                         Map<String, Object> group = new HashMap<>();
                         group.put("pmvId", card.pmvId);
-                        CofDeckPmv meta = pmvMeta.get(card.pmvId);
+                        CofPmv meta = pmvById.get(card.pmvId);
                         group.put("name", meta != null && meta.name != null ? meta.name : card.pmvName);
                         group.put("pmvName", card.pmvName);
                         if (meta != null) {
@@ -72,26 +69,23 @@ public class CardViewerService {
                             group.put("description", meta.description);
                             group.put("link", meta.link);
                         }
-                        group.put("shots", new ArrayList<Map<String, Object>>());
+                        group.put("cards", new ArrayList<Map<String, Object>>());
                         return group;
                     });
                     @SuppressWarnings("unchecked")
-                    List<Map<String, Object>> shots = (List<Map<String, Object>>) pmvGroups.get(pmvKey).get("shots");
+                    List<Map<String, Object>> cards = (List<Map<String, Object>>) pmvGroups.get(pmvKey).get("cards");
                     Map<String, Object> entry = new HashMap<>();
                     entry.put("id", card.id);
                     entry.put("imageUrl", card.imageUrl);
-                    entry.put("shot", card.shot);
-                    shots.add(entry);
+                    entry.put("name", card.cardName);
+                    entry.put("description", card.cardDescription);
+                    cards.add(entry);
                 }
             }
             Map<String, Object> lib = new HashMap<>();
             lib.put("id", library.id);
             lib.put("name", library.name);
-            lib.put("folderName", library.folderName);
-            lib.put("curator", library.curator);
             lib.put("description", library.description);
-            lib.put("version", library.version);
-            lib.put("link", library.link);
             lib.put("backUrl", library.backUrl);
             lib.put("cardCount", library.cardCount);
             lib.put("pmvCount", library.pmvCount);
@@ -119,7 +113,7 @@ public class CardViewerService {
                     }
                 }
             }
-            return HexFormat.of().formatHex(digest.digest()).substring(0, 20);
+            return HexFormat.of().formatHex(digest.digest()).substring(0, 16);
         } catch (NoSuchAlgorithmException ex) {
             return "default";
         }

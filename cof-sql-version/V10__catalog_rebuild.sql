@@ -1,0 +1,2 @@
+-- Canonical copy of prod Flyway V10 (catalog rebuild).
+-- See cof-java-boot/cof-boot/src/main/resources/db/migration/V10__catalog_rebuild.sql

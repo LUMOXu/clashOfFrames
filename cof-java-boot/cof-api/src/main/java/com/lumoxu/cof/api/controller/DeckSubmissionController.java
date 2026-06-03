@@ -6,6 +6,7 @@ import com.lumoxu.cof.common.api.ApiResponse;
 import com.lumoxu.cof.service.DeckSubmissionService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,10 +29,11 @@ public class DeckSubmissionController {
         this.submissionService = submissionService;
     }
 
-    @GetMapping("/decks/editable")
-    public ApiResponse<Map<String, Object>> editableDecks() {
+    @GetMapping("/pmvs")
+    public ApiResponse<Map<String, Object>> listPmvs() {
         String clientId = AuthContext.get().clientId.toString();
-        return ApiResponse.ok(Map.of("decks", submissionService.listEditableDecks(clientId)));
+        List<Map<String, Object>> pmvs = submissionService.listPmvsForPicker(clientId);
+        return ApiResponse.ok(Map.of("pmvs", pmvs));
     }
 
     @GetMapping("/mine")
@@ -45,6 +47,14 @@ public class DeckSubmissionController {
     public ApiResponse<Map<String, Object>> createDeck(@RequestBody Map<String, Object> body) {
         String clientId = AuthContext.get().clientId.toString();
         return ApiResponse.ok(Map.of("deck", submissionService.createDeck(clientId, body)));
+    }
+
+    @PatchMapping("/decks/{deckId}")
+    public ApiResponse<Map<String, Object>> updateDeck(
+            @PathVariable("deckId") long deckId,
+            @RequestBody Map<String, Object> body) {
+        String clientId = AuthContext.get().clientId.toString();
+        return ApiResponse.ok(Map.of("deck", submissionService.updateDeck(clientId, deckId, body)));
     }
 
     @PostMapping("/decks/{deckId}/back")
@@ -62,19 +72,26 @@ public class DeckSubmissionController {
                         clientId, deckId, file.getInputStream(), file.getSize(), cropX, cropY, cropWidth, cropHeight)));
     }
 
-    @PostMapping("/decks/{deckId}/pmvs")
-    public ApiResponse<Map<String, Object>> addPmv(
-            @PathVariable("deckId") long deckId,
+    @PostMapping("/pmvs")
+    public ApiResponse<Map<String, Object>> createPmv(@RequestBody Map<String, Object> body) {
+        String clientId = AuthContext.get().clientId.toString();
+        return ApiResponse.ok(Map.of("pmv", submissionService.createPmv(clientId, body)));
+    }
+
+    @PatchMapping("/pmvs/{pmvId}")
+    public ApiResponse<Map<String, Object>> updatePmv(
+            @PathVariable("pmvId") long pmvId,
             @RequestBody Map<String, Object> body) {
         String clientId = AuthContext.get().clientId.toString();
-        return ApiResponse.ok(Map.of("pmv", submissionService.addPmv(clientId, deckId, body)));
+        return ApiResponse.ok(Map.of("pmv", submissionService.updatePmv(clientId, pmvId, body)));
     }
 
     @PostMapping("/decks/{deckId}/cards")
     public ApiResponse<Map<String, Object>> addCard(
             @PathVariable("deckId") long deckId,
-            @RequestParam("pmvId") int pmvId,
-            @RequestParam("shot") String shot,
+            @RequestParam("pmvId") long pmvId,
+            @RequestParam(value = "name", required = false) String name,
+            @RequestParam(value = "description", required = false) String description,
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "cropX", required = false) Integer cropX,
             @RequestParam(value = "cropY", required = false) Integer cropY,
@@ -87,9 +104,36 @@ public class DeckSubmissionController {
                         clientId,
                         deckId,
                         pmvId,
-                        shot,
+                        name,
+                        description,
                         file.getInputStream(),
                         file.getSize(),
+                        cropX,
+                        cropY,
+                        cropWidth,
+                        cropHeight)));
+    }
+
+    @PatchMapping("/cards/{cardId}")
+    public ApiResponse<Map<String, Object>> updateCard(
+            @PathVariable("cardId") long cardId,
+            @RequestParam(value = "name", required = false) String name,
+            @RequestParam(value = "description", required = false) String description,
+            @RequestParam(value = "file", required = false) MultipartFile file,
+            @RequestParam(value = "cropX", required = false) Integer cropX,
+            @RequestParam(value = "cropY", required = false) Integer cropY,
+            @RequestParam(value = "cropWidth", required = false) Integer cropWidth,
+            @RequestParam(value = "cropHeight", required = false) Integer cropHeight) throws Exception {
+        String clientId = AuthContext.get().clientId.toString();
+        return ApiResponse.ok(Map.of(
+                "card",
+                submissionService.updateCard(
+                        clientId,
+                        cardId,
+                        name,
+                        description,
+                        file != null ? file.getInputStream() : null,
+                        file != null ? file.getSize() : 0,
                         cropX,
                         cropY,
                         cropWidth,
@@ -103,22 +147,17 @@ public class DeckSubmissionController {
         return ApiResponse.ok(Map.of("deleted", true));
     }
 
-    @DeleteMapping("/decks/{deckId}/pmvs/{pmvId}")
-    public ApiResponse<Map<String, Object>> deletePmv(
-            @PathVariable("deckId") long deckId,
-            @PathVariable("pmvId") int pmvId) {
+    @DeleteMapping("/pmvs/{pmvId}")
+    public ApiResponse<Map<String, Object>> deletePmv(@PathVariable("pmvId") long pmvId) {
         String clientId = AuthContext.get().clientId.toString();
-        submissionService.deletePmv(clientId, deckId, pmvId);
+        submissionService.deletePmv(clientId, pmvId);
         return ApiResponse.ok(Map.of("deleted", true));
     }
 
-    @DeleteMapping("/decks/{deckId}/pmvs/{pmvId}/cards/{shot}")
-    public ApiResponse<Map<String, Object>> deleteCard(
-            @PathVariable("deckId") long deckId,
-            @PathVariable("pmvId") int pmvId,
-            @PathVariable("shot") String shot) {
+    @DeleteMapping("/cards/{cardId}")
+    public ApiResponse<Map<String, Object>> deleteCard(@PathVariable("cardId") long cardId) {
         String clientId = AuthContext.get().clientId.toString();
-        submissionService.deleteCard(clientId, deckId, pmvId, shot);
+        submissionService.deleteCard(clientId, cardId);
         return ApiResponse.ok(Map.of("deleted", true));
     }
 }

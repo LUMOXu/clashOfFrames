@@ -4,21 +4,25 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
+import java.time.Instant;
+
 @TableName("cof_card")
 public class CofCard {
 
-    @TableId(value = "card_id", type = IdType.AUTO)
-    public Long cardId;
-
+    @TableId(value = "id", type = IdType.AUTO)
+    public Long id;
     public Long deckId;
-
-    /** FK to {@link CofDeckPmv#pmvId}. */
     public Long pmvId;
-
-    public String shot;
-    public String fileName;
+    public String name;
+    public String description;
     public String imageUrl;
-    public String cardUid;
-    public String submitterClientId;
     public String reviewStatus;
+    public String pendingReviewStatus;
+    public String pendingName;
+    public String pendingDescription;
+    public String pendingImageUrl;
+    public String submitterClientId;
+    public Instant createdAt;
+    public Instant updatedAt;
+    public Instant deletedAt;
 }

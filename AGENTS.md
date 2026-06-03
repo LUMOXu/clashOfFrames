@@ -54,8 +54,8 @@ Open http://localhost:9001
 ### Gotchas
 
 - `spring-boot:run` from `cof-boot` alone fails without `-am`; prefer the packaged JAR or `mvn -pl cof-boot -am spring-boot:run`.
-- Deck import on first insert requires `back_url` NOT NULL — fixed in `DeckCatalogImportService` (placeholder then update after id).
-- **User-submitted decks**: public catalog (`GET /meta/card-libraries`) and match pools only include rows with `cof_deck.enabled = TRUE` and `review_status = 'approved'` (plus approved PMVs/cards). After DB review via `deploy/review_submissions.py`, call `POST /api/v1/admin/catalog/reconcile` (or let the script do it) so Redis `cof:cache:card-libraries` is busted. Prefer `ad <deck_id>` to approve a whole deck; partial `ap`/`ac` auto-enables the deck when all PMVs/cards are approved.
+- **Catalog V10 rebuild**: `cof_deck` / `cof_pmv` / `cof_card` with pending_* columns for post-approval edits. Legacy tables renamed to `old_cof_*` by migration. PMV is global (`cof_pmv`); cards bridge `deck_id` + `pmv_id`. No `shot`, `slug`, or `match_id` (game `pmvId` = `cof_pmv.id`). Filesystem `import-decks` is disabled until reimplemented.
+- **User-submitted catalog**: public pools need `deck.enabled`, all three `review_status = approved`, `deleted_at IS NULL`. Card approve requires deck+pmv already approved. `libraryIds` use numeric **deck id** strings.
 - `feature-dyu` may have failing unit tests and incomplete game logic (see latest commit message).
 
 ### Production (120.53.245.110)

@@ -47,10 +47,7 @@ public class MetaService {
             item.put("id", library.id);
             item.put("name", library.name);
             item.put("title", library.title);
-            item.put("curator", library.curator);
             item.put("description", library.description);
-            item.put("version", library.version);
-            item.put("link", library.link);
             item.put("backUrl", library.backUrl);
             item.put("cardCount", library.cardCount);
             item.put("pmvCount", library.pmvCount);

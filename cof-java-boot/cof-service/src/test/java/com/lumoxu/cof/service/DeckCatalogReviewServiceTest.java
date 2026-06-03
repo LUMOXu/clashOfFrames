@@ -1,15 +1,13 @@
 package com.lumoxu.cof.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumoxu.cof.common.catalog.ReviewStatus;
 import com.lumoxu.cof.domain.entity.CofCard;
 import com.lumoxu.cof.domain.entity.CofDeck;
-import com.lumoxu.cof.domain.entity.CofDeckPmv;
+import com.lumoxu.cof.domain.entity.CofPmv;
 import com.lumoxu.cof.domain.mapper.CofCardMapper;
 import com.lumoxu.cof.domain.mapper.CofDeckMapper;
-import com.lumoxu.cof.domain.mapper.CofDeckPmvMapper;
-import com.lumoxu.cof.service.model.CardLibraryDto;
-import com.lumoxu.cof.service.support.TestRedisSupport;
+import com.lumoxu.cof.domain.mapper.CofPmvMapper;
+import com.lumoxu.cof.service.redis.JsonRedisOps;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,10 +15,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -31,115 +28,84 @@ class DeckCatalogReviewServiceTest {
     @Mock
     private CofDeckMapper deckMapper;
     @Mock
-    private CofDeckPmvMapper deckPmvMapper;
+    private CofPmvMapper pmvMapper;
     @Mock
     private CofCardMapper cardMapper;
+    @Mock
+    private JsonRedisOps redis;
+    @Mock
+    private CatalogNameGuard nameGuard;
 
     private DeckCatalogService deckCatalogService;
     private DeckCatalogReviewService reviewService;
-    private com.lumoxu.cof.service.redis.JsonRedisOps redis;
 
     @BeforeEach
     void setUp() {
-        redis = TestRedisSupport.memoryJsonRedis(new ObjectMapper());
-        deckCatalogService = new DeckCatalogService(deckMapper, deckPmvMapper, cardMapper, redis);
-        reviewService = new DeckCatalogReviewService(deckMapper, deckPmvMapper, cardMapper, deckCatalogService);
+        deckCatalogService = new DeckCatalogService(deckMapper, pmvMapper, cardMapper, redis);
+        reviewService = new DeckCatalogReviewService(deckMapper, pmvMapper, cardMapper, deckCatalogService, nameGuard);
     }
 
     @Test
-    void approveDeckEnablesAndAppearsInPublicSummaries() {
-        CofDeck deck = pendingDeck(5L);
+    void approveCardRequiresApprovedDeckAndPmv() {
+        CofDeck deck = liveDeck(1L, ReviewStatus.APPROVED);
+        CofPmv pmv = livePmv(2L, ReviewStatus.APPROVED);
+        CofCard card = liveCard(3L, 1L, 2L, ReviewStatus.PENDING);
+        when(cardMapper.selectById(3L)).thenReturn(card);
+        when(deckMapper.selectById(1L)).thenReturn(deck);
+        when(pmvMapper.selectById(2L)).thenReturn(pmv);
+
+        reviewService.approveCard(3L);
+
+        ArgumentCaptor<CofCard> captor = ArgumentCaptor.forClass(CofCard.class);
+        verify(cardMapper).updateById(captor.capture());
+        assertEquals(ReviewStatus.APPROVED, captor.getValue().reviewStatus);
+    }
+
+    @Test
+    void approveDeckRevisionMergesPending() {
+        CofDeck deck = liveDeck(5L, ReviewStatus.APPROVED);
+        deck.pendingReviewStatus = CatalogRevisionHelper.PENDING_EDIT;
+        deck.pendingName = "Renamed Deck";
         when(deckMapper.selectById(5L)).thenReturn(deck);
-        CofDeckPmv pmv = approvedPmv(5L, 1);
-        CofCard card = approvedCard(5L, 1);
-        when(deckPmvMapper.listByDeckId(5L)).thenReturn(List.of(pmv));
-        when(cardMapper.listByDeckId(5L)).thenReturn(List.of(card));
-        when(deckMapper.listEnabledDecks()).thenReturn(List.of(deck));
 
         reviewService.approveDeck(5L);
 
-        ArgumentCaptor<CofDeck> updated = ArgumentCaptor.forClass(CofDeck.class);
-        verify(deckMapper).updateById(updated.capture());
-        assertTrue(updated.getValue().enabled);
-        assertEquals(ReviewStatus.APPROVED, updated.getValue().reviewStatus);
-        assertTrue(deckCatalogService.isDeckPlayable(updated.getValue()));
-
-        when(deckMapper.listEnabledDecks()).thenReturn(List.of(updated.getValue()));
-        updated.getValue().cardCount = 1;
-        updated.getValue().pmvCount = 1;
-        List<CardLibraryDto> summaries = deckCatalogService.listPublicSummaries();
-        assertEquals(1, summaries.size());
-        assertEquals("u_test_my-deck", summaries.get(0).id);
+        ArgumentCaptor<CofDeck> captor = ArgumentCaptor.forClass(CofDeck.class);
+        verify(deckMapper).updateById(captor.capture());
+        assertEquals("Renamed Deck", captor.getValue().name);
     }
 
-    @Test
-    void approveCardAutoPublishesDeckWhenAllChildrenApproved() {
-        CofDeck deck = pendingDeck(7L);
-        deck.enabled = false;
-        when(cardMapper.selectById(99L)).thenAnswer(inv -> {
-            CofCard c = approvedCard(7L, 2);
-            c.cardId = 99L;
-            return c;
-        });
-        when(deckMapper.selectById(7L)).thenReturn(deck);
-        CofDeckPmv pmv = approvedPmv(7L, 2);
-        CofCard card = approvedCard(7L, 2);
-        when(deckPmvMapper.listByDeckId(7L)).thenReturn(List.of(pmv));
-        when(cardMapper.listByDeckId(7L)).thenReturn(List.of(card));
-
-        reviewService.approveCard(99L);
-
-        ArgumentCaptor<CofDeck> updated = ArgumentCaptor.forClass(CofDeck.class);
-        verify(deckMapper).updateById(updated.capture());
-        assertTrue(updated.getValue().enabled);
-        assertEquals(ReviewStatus.APPROVED, updated.getValue().reviewStatus);
-    }
-
-    @Test
-    void reconcileFixesApprovedButDisabledDeck() {
-        CofDeck deck = pendingDeck(8L);
-        deck.reviewStatus = ReviewStatus.APPROVED;
-        deck.enabled = false;
-        when(deckMapper.selectList(any())).thenReturn(List.of(deck));
-
-        reviewService.reconcileAndRefreshCaches();
-
-        ArgumentCaptor<CofDeck> updated = ArgumentCaptor.forClass(CofDeck.class);
-        verify(deckMapper).updateById(updated.capture());
-        assertTrue(updated.getValue().enabled);
-    }
-
-    private static CofDeck pendingDeck(long id) {
+    private static CofDeck liveDeck(long id, String status) {
         CofDeck deck = new CofDeck();
         deck.id = id;
-        deck.folderName = "u_test_my-deck";
-        deck.name = "Mine";
-        deck.enabled = false;
-        deck.reviewStatus = ReviewStatus.PENDING;
-        deck.cardCount = 1;
-        deck.pmvCount = 1;
+        deck.name = "Deck";
+        deck.backUrl = "/cards/backs/1.jpg";
+        deck.enabled = true;
+        deck.reviewStatus = status;
+        deck.createdAt = Instant.now();
+        deck.updatedAt = Instant.now();
         return deck;
     }
 
-    private static CofDeckPmv approvedPmv(long deckId, int matchId) {
-        CofDeckPmv pmv = new CofDeckPmv();
-        pmv.pmvId = 10L;
-        pmv.deckId = deckId;
-        pmv.matchId = matchId;
+    private static CofPmv livePmv(long id, String status) {
+        CofPmv pmv = new CofPmv();
+        pmv.id = id;
         pmv.name = "PMV";
-        pmv.reviewStatus = ReviewStatus.APPROVED;
+        pmv.reviewStatus = status;
+        pmv.createdAt = Instant.now();
+        pmv.updatedAt = Instant.now();
         return pmv;
     }
 
-    private static CofCard approvedCard(long deckId, int matchId) {
-        CofDeckPmv pmv = approvedPmv(deckId, matchId);
+    private static CofCard liveCard(long id, long deckId, long pmvId, String status) {
         CofCard card = new CofCard();
-        card.cardId = 1L;
+        card.id = id;
         card.deckId = deckId;
-        card.pmvId = pmv.pmvId;
-        card.shot = "a";
-        card.reviewStatus = ReviewStatus.APPROVED;
-        card.cardUid = deckId + "/" + matchId + "/a";
+        card.pmvId = pmvId;
+        card.imageUrl = "/cards/x.jpg";
+        card.reviewStatus = status;
+        card.createdAt = Instant.now();
+        card.updatedAt = Instant.now();
         return card;
     }
 }

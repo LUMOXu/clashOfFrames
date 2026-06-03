@@ -1,7 +1,7 @@
 package com.lumoxu.cof.domain.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.lumoxu.cof.domain.entity.CofDeck;
+import com.lumoxu.cof.domain.entity.CofPmv;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -9,39 +9,37 @@ import org.apache.ibatis.annotations.Select;
 import java.util.List;
 
 @Mapper
-public interface CofDeckMapper extends BaseMapper<CofDeck> {
+public interface CofPmvMapper extends BaseMapper<CofPmv> {
 
     @Select("""
-            SELECT * FROM cof_deck
+            SELECT * FROM cof_pmv
             WHERE deleted_at IS NULL
-              AND enabled = TRUE
+            ORDER BY name
+            """)
+    List<CofPmv> listAlive();
+
+    @Select("""
+            SELECT * FROM cof_pmv
+            WHERE deleted_at IS NULL
               AND review_status = 'approved'
             ORDER BY name
             """)
-    List<CofDeck> listPlayableDecks();
+    List<CofPmv> listApproved();
 
     @Select("""
-            SELECT * FROM cof_deck
-            WHERE deleted_at IS NULL
-              AND submitter_client_id = #{clientId}
-            ORDER BY updated_at DESC
-            """)
-    List<CofDeck> listBySubmitter(@Param("clientId") String clientId);
-
-    @Select("""
-            SELECT * FROM cof_deck
+            SELECT * FROM cof_pmv
             WHERE deleted_at IS NULL
               AND LOWER(name) = LOWER(#{name})
             LIMIT 1
             """)
-    CofDeck findAliveByName(@Param("name") String name);
+    CofPmv findAliveByName(@Param("name") String name);
 
     @Select("""
-            SELECT * FROM cof_deck
+            SELECT * FROM cof_pmv
             WHERE deleted_at IS NULL
               AND pending_name IS NOT NULL
               AND LOWER(pending_name) = LOWER(#{name})
             LIMIT 1
             """)
-    CofDeck findAliveByPendingName(@Param("name") String name);
+    CofPmv findAliveByPendingName(@Param("name") String name);
 }
