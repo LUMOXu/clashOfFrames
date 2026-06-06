@@ -1,0 +1,2 @@
+-- Canonical copy of prod Flyway V11 (catalog id sequence sync).
+-- See cof-java-boot/cof-boot/src/main/resources/db/migration/V11__sync_catalog_id_sequences.sql

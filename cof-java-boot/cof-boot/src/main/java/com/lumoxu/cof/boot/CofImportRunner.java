@@ -1,5 +1,6 @@
 package com.lumoxu.cof.boot;
 
+import com.lumoxu.cof.service.CatalogSequenceSyncService;
 import com.lumoxu.cof.service.ComputerPlayerImportService;
 import com.lumoxu.cof.service.DeckCatalogImportService;
 import com.lumoxu.cof.service.StateJsonMigrationService;
@@ -20,16 +21,19 @@ public class CofImportRunner implements ApplicationRunner {
     private final DeckCatalogImportService deckCatalogImportService;
     private final ComputerPlayerImportService computerPlayerImportService;
     private final StateJsonMigrationService stateJsonMigrationService;
+    private final CatalogSequenceSyncService catalogSequenceSyncService;
     private final boolean bootstrapDefaultDecks;
 
     public CofImportRunner(
             DeckCatalogImportService deckCatalogImportService,
             ComputerPlayerImportService computerPlayerImportService,
             StateJsonMigrationService stateJsonMigrationService,
+            CatalogSequenceSyncService catalogSequenceSyncService,
             @Value("${cof.bootstrap-default-decks:true}") boolean bootstrapDefaultDecks) {
         this.deckCatalogImportService = deckCatalogImportService;
         this.computerPlayerImportService = computerPlayerImportService;
         this.stateJsonMigrationService = stateJsonMigrationService;
+        this.catalogSequenceSyncService = catalogSequenceSyncService;
         this.bootstrapDefaultDecks = bootstrapDefaultDecks;
     }
 
@@ -65,6 +69,11 @@ public class CofImportRunner implements ApplicationRunner {
             Path stateJson = Path.of("data/state.json").toAbsolutePath().normalize();
             int count = stateJsonMigrationService.importFromFile(stateJson);
             log.info("Migrated {} user(s) from state.json.", count);
+        }
+        try {
+            catalogSequenceSyncService.syncCatalogIdSequencesIfPostgres();
+        } catch (Exception ex) {
+            log.warn("Catalog id sequence sync skipped: {}", ex.getMessage());
         }
     }
 }
