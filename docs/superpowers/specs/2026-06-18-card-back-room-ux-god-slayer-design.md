@@ -111,21 +111,17 @@
 
 沿用 `cof_user_stats` 已有字段：
 
-- `god_defeated_at`：非空即表示拥有 GOD Slayer；
-- `god_reward_game_id`：首次授予称号的对局 ID；
+- `god_defeated_at`：永久称号标记，非空即表示拥有 GOD Slayer，奖励确认后也不会清空；
+- `god_reward_game_id`：待确认奖励标记，非空表示仍有待确认奖励；确认奖励时清空该字段；
 - `defeated_computers`：继续维护电脑击败统计。
 
-新增：
-
-- `god_reward_acknowledged_at BIGINT NULL`：为空表示奖励尚未“收下”，非空表示已经确认。
-
-Flyway 迁移同时写入 `cof-sql-version` 和 `cof-boot/src/main/resources/db/migration`，使用下一个版本号。
+不新增任何数据库字段、表、索引或约束，也不需要 Flyway 迁移或其他 schema 变更。详细状态约定记录在 `docs/database/god-slayer-persistence.md`。
 
 ### 授予与幂等
 
 - 资格检查在保存结束战绩的服务端路径中执行，使用 `Game.settings` 和结束时玩家状态，不信任前端参数。
 - `GameSummary.SummaryPlayer` 增加判断所需的淘汰状态；最终摸牌堆数量继续使用 `finalDrawCount`。
-- 首次授予时设置 `god_defeated_at`、`god_reward_game_id`，并将 `god_reward_acknowledged_at` 置空。
+- 首次授予时设置 `god_defeated_at` 和 `god_reward_game_id`；前者永久保留，后者表示奖励待确认。
 - `Game` 和 `PublicGame` 增加 `godSlayerAwardWinnerId`，仅在本局确实新授予称号时设置。
 - 依靠既有唯一 `game_id`、`statsSaved` 和数据库条件更新避免重复 tick 或重试重复授予。
 - GOD 的普通击败统计改为服从新资格条件；其他电脑的击败统计保持原逻辑。
@@ -135,7 +131,7 @@ Flyway 迁移同时写入 `cof-sql-version` 和 `cof-boot/src/main/resources/db/
 - `godSlayer` 是可以公开展示的玩家属性，加入认证玩家、房间玩家详情、游戏玩家、结算玩家、排行榜和个人资料 DTO。
 - `godSlayerAwardWinnerId` 可随 PublicGame 广播，用于结算音效与即时样式。
 - `pendingGodSlayerReward` 只在当前登录用户自己的 profile 中返回；其他玩家无法读取赢家是否已经点击“收下”。
-- 新增奖励确认接口。它只能确认当前登录用户的待领取奖励，成功后写入 `god_reward_acknowledged_at`。
+- 新增奖励确认接口。它只能确认当前登录用户的待领取奖励，成功后清空 `god_reward_game_id`，但永久保留 `god_defeated_at`。
 - 如果赢家刷新或重连，profile 仍返回待领取奖励，弹窗重新出现，10 秒倒计时从头开始。
 
 ## 4. 奖励弹窗与音效
