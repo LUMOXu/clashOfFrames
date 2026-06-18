@@ -407,7 +407,7 @@ public class UserStatsService {
                     defeated.put(computer.computerId, previous + 1);
                 }
             }
-            updateDefeatedComputers(statsId, stats, defeated);
+            updateDefeatedComputers(stats, defeated);
         }
     }
 
@@ -440,14 +440,13 @@ public class UserStatsService {
                 stats != null ? stats.defeatedComputers : null));
         int previous = ((Number) defeated.getOrDefault(GOD_COMPUTER_ID, 0)).intValue();
         defeated.put(GOD_COMPUTER_ID, previous + 1);
-        updateDefeatedComputers(statsId, stats, defeated);
+        updateDefeatedComputers(stats, defeated);
 
         game.godSlayerAwardWinnerId = winner.clientId;
         winner.godSlayer = true;
     }
 
     private void updateDefeatedComputers(
-            String statsId,
             CofUserStats stats,
             Map<String, Object> defeated) {
         String defeatedJson;
@@ -456,16 +455,8 @@ public class UserStatsService {
         } catch (Exception ex) {
             defeatedJson = "{}";
         }
-        long updatedAt = System.currentTimeMillis();
-        if (stats != null) {
-            stats.defeatedComputers = defeatedJson;
-            stats.updatedAt = updatedAt;
-        }
-        statsMapper.update(
-                null,
-                new UpdateWrapper<CofUserStats>()
-                        .eq("stats_id", statsId)
-                        .set("defeated_computers", defeatedJson)
-                        .set("updated_at", updatedAt));
+        stats.defeatedComputers = defeatedJson;
+        stats.updatedAt = System.currentTimeMillis();
+        statsMapper.updateById(stats);
     }
 }
