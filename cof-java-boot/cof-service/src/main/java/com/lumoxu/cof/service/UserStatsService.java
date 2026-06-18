@@ -440,7 +440,6 @@ public class UserStatsService {
         }
         stats.godDefeatedAt = summary.at;
         stats.godRewardGameId = summary.gameId;
-        stats.godRewardAcknowledgedAt = null;
         stats.updatedAt = System.currentTimeMillis();
         statsMapper.updateById(stats);
 

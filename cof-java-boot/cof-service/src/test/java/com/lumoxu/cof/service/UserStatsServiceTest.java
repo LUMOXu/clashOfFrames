@@ -110,7 +110,6 @@ class UserStatsServiceTest {
 
         assertEquals(game.finishedAt, winnerStats.godDefeatedAt);
         assertEquals(game.id, winnerStats.godRewardGameId);
-        assertNull(winnerStats.godRewardAcknowledgedAt);
         assertEquals("winner", game.godSlayerAwardWinnerId);
         assertTrue(player(game, "winner").godSlayer);
         assertEquals(1, objectMapper.readTree(winnerStats.defeatedComputers).path("computer_god").asInt());
@@ -158,7 +157,6 @@ class UserStatsServiceTest {
         CofUserStats winnerStats = existingStats("winner", "Winner");
         winnerStats.godDefeatedAt = 111L;
         winnerStats.godRewardGameId = "old-game";
-        winnerStats.godRewardAcknowledgedAt = 222L;
         persistedStats.put(winnerStats.statsId, winnerStats);
         when(matchHistoryMapper.insert(any(CofMatchHistory.class))).thenReturn(1);
 
@@ -166,7 +164,6 @@ class UserStatsServiceTest {
 
         assertEquals(111L, winnerStats.godDefeatedAt);
         assertEquals("old-game", winnerStats.godRewardGameId);
-        assertEquals(222L, winnerStats.godRewardAcknowledgedAt);
         assertNull(game.godSlayerAwardWinnerId);
         assertFalse(player(game, "winner").godSlayer);
     }
