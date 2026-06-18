@@ -10,6 +10,7 @@ public class PublicPlayer {
     public boolean isComputer;
     public String computerId;
     public String statsId;
+    public boolean godSlayer;
     public boolean connected;
     public boolean eliminated;
     public boolean exited;

@@ -13,6 +13,7 @@ import com.lumoxu.cof.engine.GameLogTextFormatter;
 import com.lumoxu.cof.engine.GameReplayRecorder;
 import com.lumoxu.cof.engine.GameReplayTimeline;
 import com.lumoxu.cof.engine.GameSummary;
+import com.lumoxu.cof.engine.Player;
 import com.lumoxu.cof.engine.PlayerStats;
 import com.lumoxu.cof.common.api.CofException;
 import com.lumoxu.cof.common.api.ErrorCode;
@@ -121,6 +122,7 @@ public class UserStatsService {
                 applySummaryToPlayer(entry, summary);
             }
             updateComputerDefeatStats(summary);
+            awardGodSlayer(game, summary);
             redis.delete(RedisKeys.CACHE_LEADERBOARD);
             return true;
         } catch (Exception ex) {
@@ -383,7 +385,11 @@ public class UserStatsService {
 
     private void updateComputerDefeatStats(GameSummary summary) {
         List<GameSummary.SummaryPlayer> computers = summary.players.stream()
-                .filter(p -> p.isComputer && p.computerId != null && !p.computerId.isBlank() && p.rank != null)
+                .filter(p -> p.isComputer
+                        && p.computerId != null
+                        && !p.computerId.isBlank()
+                        && !GOD_COMPUTER_ID.equals(p.computerId)
+                        && p.rank != null)
                 .toList();
         List<GameSummary.SummaryPlayer> humans = summary.players.stream()
                 .filter(p -> !p.isComputer && p.rank != null)
@@ -396,15 +402,8 @@ public class UserStatsService {
             Map<String, Object> defeated = parseDefeatedComputers(stats.defeatedComputers);
             for (GameSummary.SummaryPlayer computer : computers) {
                 if (human.rank < computer.rank) {
-                    if (GOD_COMPUTER_ID.equals(computer.computerId) && human.finalDrawCount < 3) {
-                        continue;
-                    }
                     int previous = ((Number) defeated.getOrDefault(computer.computerId, 0)).intValue();
                     defeated.put(computer.computerId, previous + 1);
-                    if (GOD_COMPUTER_ID.equals(computer.computerId) && previous == 0) {
-                        stats.godDefeatedAt = summary.at;
-                        stats.godRewardGameId = summary.gameId;
-                    }
                 }
             }
             try {
@@ -415,5 +414,37 @@ public class UserStatsService {
             stats.updatedAt = System.currentTimeMillis();
             statsMapper.updateById(stats);
         }
+    }
+
+    private void awardGodSlayer(Game game, GameSummary summary) {
+        Player winner = GodSlayerEligibility.eligibleWinner(game);
+        if (winner == null) {
+            return;
+        }
+
+        String statsId = winner.statsId != null && !winner.statsId.isBlank()
+                ? winner.statsId
+                : winner.clientId;
+        CofUserStats stats = ensureStats(statsId, winner.username, false, null);
+        if (stats.godDefeatedAt != null) {
+            return;
+        }
+
+        Map<String, Object> defeated = parseDefeatedComputers(stats.defeatedComputers);
+        int previous = ((Number) defeated.getOrDefault(GOD_COMPUTER_ID, 0)).intValue();
+        defeated.put(GOD_COMPUTER_ID, previous + 1);
+        try {
+            stats.defeatedComputers = objectMapper.writeValueAsString(defeated);
+        } catch (Exception ex) {
+            stats.defeatedComputers = "{}";
+        }
+        stats.godDefeatedAt = summary.at;
+        stats.godRewardGameId = summary.gameId;
+        stats.godRewardAcknowledgedAt = null;
+        stats.updatedAt = System.currentTimeMillis();
+        statsMapper.updateById(stats);
+
+        game.godSlayerAwardWinnerId = winner.clientId;
+        winner.godSlayer = true;
     }
 }

@@ -127,6 +127,18 @@ class GameCoreTest {
     }
 
     @Test
+    void publicGameCopiesGodSlayerAwardState() {
+        Game game = sampleGame();
+        game.players.get(0).godSlayer = true;
+        game.godSlayerAwardWinnerId = game.players.get(0).clientId;
+
+        PublicGame snapshot = GameCore.publicGame(game);
+
+        assertTrue(snapshot.players.get(0).godSlayer);
+        assertEquals("a", snapshot.godSlayerAwardWinnerId);
+    }
+
+    @Test
     void dealsEqualCardCountsAndDiscardsLeftovers() {
         List<Card> cards = new ArrayList<>();
         for (int index = 0; index < 10; index++) {
@@ -323,6 +335,16 @@ class GameCoreTest {
         assertEquals("a", summary.winnerId);
         assertEquals(3, summary.bellCount);
         assertEquals((double) game.playCount / 2, summary.averageRoundLength);
+    }
+
+    @Test
+    void finishedGameSummaryCopiesEliminatedState() {
+        Game game = sampleGame();
+        game.players.get(1).eliminated = true;
+
+        GameSummary summary = GameCore.summarizeGameForStats(game);
+
+        assertTrue(summary.players.get(1).eliminated);
     }
 
     @Test

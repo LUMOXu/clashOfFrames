@@ -29,6 +29,7 @@ public class Game {
     public List<GameLog> logs = new ArrayList<>();
     public List<String> eliminatedOrder = new ArrayList<>();
     public String winnerId;
+    public String godSlayerAwardWinnerId;
     public List<String> continueVotes = new ArrayList<>();
     public Long continueCountdownStartedAt;
     public Long continueReturnAt;

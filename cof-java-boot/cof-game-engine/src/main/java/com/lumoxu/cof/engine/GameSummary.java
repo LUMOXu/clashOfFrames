@@ -23,6 +23,7 @@ public class GameSummary {
         public boolean isComputer;
         public String computerId;
         public String statsId;
+        public boolean eliminated;
         public Integer rank;
         public int finalDrawCount;
         public PlayerStats stats;

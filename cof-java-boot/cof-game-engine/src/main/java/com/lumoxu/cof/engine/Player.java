@@ -10,6 +10,7 @@ public class Player {
     public boolean isComputer;
     public String computerId;
     public String statsId;
+    public boolean godSlayer;
     public boolean connected = true;
     public boolean eliminated;
     public boolean exited;

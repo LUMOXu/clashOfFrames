@@ -239,6 +239,7 @@ public final class GameCore {
         out.discardedCards = game.discardedCards;
         out.eliminatedOrder = new ArrayList<>(game.eliminatedOrder);
         out.winnerId = game.winnerId;
+        out.godSlayerAwardWinnerId = game.godSlayerAwardWinnerId;
         out.continueVotes = new ArrayList<>(game.continueVotes);
         out.continueCountdownStartedAt = game.continueCountdownStartedAt;
         out.continueReturnAt = game.continueReturnAt;
@@ -263,6 +264,7 @@ public final class GameCore {
             publicPlayer.isComputer = player.isComputer;
             publicPlayer.computerId = player.computerId;
             publicPlayer.statsId = player.statsId;
+            publicPlayer.godSlayer = player.godSlayer;
             publicPlayer.connected = player.connected;
             publicPlayer.eliminated = player.eliminated;
             publicPlayer.exited = player.exited;
@@ -816,6 +818,7 @@ public final class GameCore {
             sp.isComputer = player.isComputer;
             sp.computerId = player.computerId;
             sp.statsId = player.statsId;
+            sp.eliminated = player.eliminated;
             sp.rank = player.rank;
             sp.finalDrawCount = player.drawPile.size();
             sp.stats = CloneUtil.cloneStats(player.stats);

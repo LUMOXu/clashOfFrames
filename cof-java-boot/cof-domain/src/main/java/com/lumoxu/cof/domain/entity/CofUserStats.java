@@ -24,6 +24,7 @@ public class CofUserStats {
     public String defeatedComputers;
     public String godRewardGameId;
     public Long godDefeatedAt;
+    public Long godRewardAcknowledgedAt;
     @TableField(typeHandler = JsonbStringTypeHandler.class)
     public String history;
     public Long updatedAt;
