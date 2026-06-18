@@ -28,11 +28,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -57,11 +59,16 @@ class UserStatsServiceTest {
         persistedStats = new HashMap<>();
         when(statsMapper.selectById(any(String.class)))
                 .thenAnswer(invocation -> persistedStats.get(invocation.getArgument(0)));
-        doAnswer(invocation -> {
+        lenient().doAnswer(invocation -> {
             CofUserStats stats = invocation.getArgument(0);
             persistedStats.put(stats.statsId, stats);
             return 1;
         }).when(statsMapper).insert(any(CofUserStats.class));
+        lenient().doAnswer(invocation -> {
+            CofUserStats stats = invocation.getArgument(0);
+            persistedStats.put(stats.statsId, stats);
+            return 1;
+        }).when(statsMapper).updateById(any(CofUserStats.class));
         userStatsService = new UserStatsService(
                 statsMapper,
                 matchHistoryMapper,
@@ -257,6 +264,64 @@ class UserStatsServiceTest {
 
         assertEquals(1, objectMapper.readTree(winnerStats.defeatedComputers).path("computer_easy").asInt());
         assertNull(winnerStats.godDefeatedAt);
+    }
+
+    @Test
+    void profileExposesTitleAndPrivatePendingReward() {
+        CofUserStats stats = existingStats("winner", "Winner");
+        stats.godDefeatedAt = 2_000L;
+        stats.godRewardGameId = "game-1";
+        persistedStats.put(stats.statsId, stats);
+
+        Map<String, Object> profile = userStatsService.profileFor("winner");
+
+        assertEquals(true, profile.get("godSlayer"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> pending = (Map<String, Object>) profile.get("pendingGodSlayerReward");
+        assertEquals("game-1", pending.get("gameId"));
+        assertEquals("Winner", pending.get("username"));
+    }
+
+    @Test
+    void acknowledgeRewardClearsPendingGameButKeepsTitle() {
+        CofUserStats stats = existingStats("winner", "Winner");
+        stats.godDefeatedAt = 2_000L;
+        stats.godRewardGameId = "game-1";
+        persistedStats.put(stats.statsId, stats);
+        when(statsMapper.update(nullable(CofUserStats.class), any())).thenReturn(1);
+
+        Map<String, Object> profile = userStatsService.acknowledgeGodSlayerReward("winner");
+
+        assertNull(stats.godRewardGameId);
+        assertEquals(2_000L, stats.godDefeatedAt);
+        assertEquals(true, profile.get("godSlayer"));
+        assertFalse(profile.containsKey("pendingGodSlayerReward"));
+    }
+
+    @Test
+    void acknowledgeRewardRejectsWhenNothingIsPending() {
+        CofUserStats stats = existingStats("winner", "Winner");
+        stats.godDefeatedAt = 2_000L;
+        persistedStats.put(stats.statsId, stats);
+
+        assertThrows(
+                com.lumoxu.cof.common.api.CofException.class,
+                () -> userStatsService.acknowledgeGodSlayerReward("winner"));
+    }
+
+    @Test
+    void isGodSlayerRequiresHumanWithAwardTimestamp() {
+        CofUserStats human = existingStats("winner", "Winner");
+        human.godDefeatedAt = 2_000L;
+        persistedStats.put(human.statsId, human);
+        CofUserStats computer = existingStats("computer:computer_god", "GOD");
+        computer.isComputer = true;
+        computer.godDefeatedAt = 2_000L;
+        persistedStats.put(computer.statsId, computer);
+
+        assertTrue(userStatsService.isGodSlayer("winner"));
+        assertFalse(userStatsService.isGodSlayer("computer:computer_god"));
+        assertFalse(userStatsService.isGodSlayer("missing"));
     }
 
     private static Game godGame(boolean includeOtherHuman) {

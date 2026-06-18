@@ -137,6 +137,40 @@ public class UserStatsService {
         if (stats == null) {
             stats = ensureStats(statsId, statsId, false, null);
         }
+        return profileFromStats(stats);
+    }
+
+    public boolean isGodSlayer(String statsId) {
+        if (statsId == null || statsId.isBlank()) {
+            return false;
+        }
+        CofUserStats stats = statsMapper.selectById(statsId);
+        return stats != null && !Boolean.TRUE.equals(stats.isComputer) && stats.godDefeatedAt != null;
+    }
+
+    public Map<String, Object> acknowledgeGodSlayerReward(String statsId) {
+        CofUserStats stats = statsMapper.selectById(statsId);
+        if (stats == null || stats.godDefeatedAt == null || stats.godRewardGameId == null) {
+            throw new CofException(ErrorCode.CONFLICT, "当前没有待确认的弑神奖励。");
+        }
+        long now = System.currentTimeMillis();
+        int updated = statsMapper.update(
+                null,
+                new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<CofUserStats>()
+                        .eq("stats_id", statsId)
+                        .isNotNull("god_reward_game_id")
+                        .set("god_reward_game_id", null)
+                        .set("updated_at", now));
+        if (updated != 1) {
+            throw new CofException(ErrorCode.CONFLICT, "奖励已经确认或状态已变化。");
+        }
+        stats.godRewardGameId = null;
+        stats.updatedAt = now;
+        redis.delete(RedisKeys.CACHE_LEADERBOARD);
+        return profileFromStats(stats);
+    }
+
+    private Map<String, Object> profileFromStats(CofUserStats stats) {
         Map<String, Object> profile = new HashMap<>();
         profile.put("statsId", stats.statsId);
         profile.put("username", stats.username);
@@ -172,6 +206,13 @@ public class UserStatsService {
         }
         profile.put("godRewardGameId", stats.godRewardGameId);
         profile.put("godDefeatedAt", stats.godDefeatedAt);
+        boolean godSlayer = !Boolean.TRUE.equals(stats.isComputer) && stats.godDefeatedAt != null;
+        profile.put("godSlayer", godSlayer);
+        if (godSlayer && stats.godRewardGameId != null && !stats.godRewardGameId.isBlank()) {
+            profile.put("pendingGodSlayerReward", Map.of(
+                    "gameId", stats.godRewardGameId,
+                    "username", stats.username));
+        }
         return profile;
     }
 
@@ -288,6 +329,7 @@ public class UserStatsService {
         item.put("correctRate", rings > 0 ? (double) correctRings / rings : null);
         item.put("averageRank", gamesPlayed > 0 ? (double) totalRank / gamesPlayed : null);
         item.put("defeatedComputers", parseDefeatedComputers(row.defeatedComputers));
+        item.put("godSlayer", !Boolean.TRUE.equals(row.isComputer) && row.godDefeatedAt != null);
         return item;
     }
 

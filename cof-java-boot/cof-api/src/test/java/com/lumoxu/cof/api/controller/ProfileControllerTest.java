@@ -10,6 +10,7 @@ import java.util.Map;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = ProfileController.class)
@@ -40,5 +41,21 @@ class ProfileControllerTest extends ControllerTestSupport {
         mockMvc.perform(get("/api/v1/profile/00000000-0000-0000-0000-000000000001/games/game-1/replay")
                         .header("Authorization", bearer()))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void acknowledgeGodSlayerRewardOkForSelf() throws Exception {
+        when(userStatsService.acknowledgeGodSlayerReward(anyString()))
+                .thenReturn(Map.of("username", "alice", "godSlayer", true));
+        mockMvc.perform(post("/api/v1/profile/00000000-0000-0000-0000-000000000001/god-slayer-reward/acknowledge")
+                        .header("Authorization", bearer()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void acknowledgeGodSlayerRewardRejectsOtherUser() throws Exception {
+        mockMvc.perform(post("/api/v1/profile/00000000-0000-0000-0000-000000000099/god-slayer-reward/acknowledge")
+                        .header("Authorization", bearer()))
+                .andExpect(status().isForbidden());
     }
 }

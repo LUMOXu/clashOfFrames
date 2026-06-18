@@ -177,6 +177,7 @@ public class RoomService {
             } else {
                 player.username = displayName(room, playerId);
                 player.statsId = playerId;
+                player.godSlayer = userStatsService.isGodSlayer(player.statsId);
             }
             players.add(player);
         }
@@ -230,11 +231,16 @@ public class RoomService {
         map.put("chatMessages", room.chatMessages != null ? room.chatMessages : List.of());
         List<Map<String, Object>> playerRows = room.players.stream().map(id -> {
             Map<String, Object> row = new HashMap<>();
+            boolean isComputer = id.startsWith("computer:");
+            String computerId = isComputer ? id.substring(id.lastIndexOf(':') + 1) : null;
+            String statsId = isComputer ? "computer:" + computerId : id;
             row.put("clientId", id);
             row.put("username", displayName(room, id));
-            row.put("isComputer", id.startsWith("computer:"));
-            if (id.startsWith("computer:")) {
-                row.put("computerId", id.substring(id.lastIndexOf(':') + 1));
+            row.put("isComputer", isComputer);
+            row.put("statsId", statsId);
+            row.put("godSlayer", !isComputer && userStatsService.isGodSlayer(statsId));
+            if (isComputer) {
+                row.put("computerId", computerId);
             }
             return row;
         }).collect(Collectors.toList());

@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -148,6 +149,37 @@ class RoomServiceTest {
         assertTrue(playerRoomService.findRoomId("guest-2").isEmpty());
         assertTrue(playerRoomService.findRoomId("guest-3").isEmpty());
         assertEquals("game-1", updated.gameId);
+    }
+
+    @Test
+    void summaryIncludesStableIdentityAndGodSlayerFlag() {
+        when(userStatsService.isGodSlayer("host-1")).thenReturn(true);
+        RoomState room = roomService.createRoom("host-1", "Host", GameSettings.defaultSettings(), List.of());
+
+        Map<String, Object> summary = roomService.summary(room);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> players = (List<Map<String, Object>>) summary.get("playerDetails");
+
+        assertEquals("host-1", players.get(0).get("statsId"));
+        assertEquals(true, players.get(0).get("godSlayer"));
+    }
+
+    @Test
+    void startGameCopiesPersistedGodSlayerFlagToHumanPlayer() {
+        when(userStatsService.isGodSlayer("host-1")).thenReturn(true);
+        when(deckCatalogService.expandedCardsFromRoom(anyString(), any(GameSettings.class)))
+                .thenReturn(List.of(card("c1"), card("c2"), card("c3")));
+        when(gameRuntimeService.createGame(any(Room.class), any(), any())).thenAnswer(invocation -> {
+            Game game = new Game();
+            game.id = "game-slayer";
+            game.players = invocation.getArgument(1);
+            return game;
+        });
+        RoomState room = roomService.createRoom("host-1", "Host", GameSettings.defaultSettings(), List.of());
+
+        Game game = roomService.startGame(room, "host-1");
+
+        assertTrue(game.players.get(0).godSlayer);
     }
 
     private static Card card(String id) {

@@ -8,6 +8,7 @@ import com.lumoxu.cof.common.api.ErrorCode;
 import com.lumoxu.cof.service.UserStatsService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -42,5 +43,17 @@ public class ProfileController {
             throw new CofException(ErrorCode.FORBIDDEN, "只能查看自己的对局回放。");
         }
         return ApiResponse.ok(Map.of("replay", userStatsService.matchReplayFor(clientId, gameId)));
+    }
+
+    @PostMapping("/{clientId}/god-slayer-reward/acknowledge")
+    public ApiResponse<Map<String, Object>> acknowledgeGodSlayerReward(
+            @PathVariable("clientId") String clientId) {
+        String self = AuthContext.get().clientId.toString();
+        if (!self.equals(clientId)) {
+            throw new CofException(ErrorCode.FORBIDDEN, "只能确认自己的奖励。");
+        }
+        return ApiResponse.ok(Map.of(
+                "profile",
+                userStatsService.acknowledgeGodSlayerReward(clientId)));
     }
 }

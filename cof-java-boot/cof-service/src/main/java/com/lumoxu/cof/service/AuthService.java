@@ -92,6 +92,7 @@ public class AuthService {
         dto.clientId = user.clientId.toString();
         dto.username = user.username;
         dto.statsId = user.clientId.toString();
+        dto.godSlayer = userStatsService.isGodSlayer(dto.statsId);
         dto.connected = true;
         dto.joinedAt = user.createdAt != null ? user.createdAt : System.currentTimeMillis();
         dto.lastSeenAt = System.currentTimeMillis();
