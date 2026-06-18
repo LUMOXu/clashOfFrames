@@ -13,27 +13,35 @@ public final class GodSlayerEligibility {
     private GodSlayerEligibility() {
     }
 
-    public static Player eligibleWinner(Game game) {
+    public static boolean eligible(Game game) {
         if (game == null
                 || !"finished".equals(game.status)
                 || game.settings == null
                 || game.settings.libraryIds == null
                 || game.settings.libraryIds.isEmpty()
                 || !game.settings.libraryIds.stream().allMatch(ALLOWED_LIBRARY_IDS::contains)) {
-            return null;
+            return false;
         }
 
         boolean godEliminated = game.players.stream()
                 .anyMatch(player -> GOD_COMPUTER_ID.equals(player.computerId) && player.eliminated);
         if (!godEliminated) {
-            return null;
+            return false;
         }
 
+        Player winner = winner(game);
+        return winner != null
+                && !winner.isComputer
+                && winner.drawPile.size() >= 3
+                && !winner.godSlayer;
+    }
+
+    static Player winner(Game game) {
+        if (game == null) {
+            return null;
+        }
         return game.players.stream()
                 .filter(player -> player.clientId != null && player.clientId.equals(game.winnerId))
-                .filter(player -> !player.isComputer)
-                .filter(player -> player.drawPile.size() >= 3)
-                .filter(player -> !player.godSlayer)
                 .findFirst()
                 .orElse(null);
     }

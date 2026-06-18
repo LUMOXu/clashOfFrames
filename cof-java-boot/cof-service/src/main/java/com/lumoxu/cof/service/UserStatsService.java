@@ -1,6 +1,7 @@
 package com.lumoxu.cof.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumoxu.cof.domain.entity.CofMatchHistory;
@@ -399,51 +400,72 @@ public class UserStatsService {
                     ? human.statsId
                     : human.clientId;
             CofUserStats stats = ensureStats(statsId, human.username, false, null);
-            Map<String, Object> defeated = parseDefeatedComputers(stats.defeatedComputers);
+            Map<String, Object> defeated = new HashMap<>(parseDefeatedComputers(stats.defeatedComputers));
             for (GameSummary.SummaryPlayer computer : computers) {
                 if (human.rank < computer.rank) {
                     int previous = ((Number) defeated.getOrDefault(computer.computerId, 0)).intValue();
                     defeated.put(computer.computerId, previous + 1);
                 }
             }
-            try {
-                stats.defeatedComputers = objectMapper.writeValueAsString(defeated);
-            } catch (Exception ex) {
-                stats.defeatedComputers = "{}";
-            }
-            stats.updatedAt = System.currentTimeMillis();
-            statsMapper.updateById(stats);
+            updateDefeatedComputers(statsId, stats, defeated);
         }
     }
 
     private void awardGodSlayer(Game game, GameSummary summary) {
-        Player winner = GodSlayerEligibility.eligibleWinner(game);
-        if (winner == null) {
+        if (!GodSlayerEligibility.eligible(game)) {
             return;
         }
+        Player winner = GodSlayerEligibility.winner(game);
 
         String statsId = winner.statsId != null && !winner.statsId.isBlank()
                 ? winner.statsId
                 : winner.clientId;
-        CofUserStats stats = ensureStats(statsId, winner.username, false, null);
-        if (stats.godDefeatedAt != null) {
+        long now = System.currentTimeMillis();
+        CofUserStats claim = new CofUserStats();
+        claim.statsId = statsId;
+        claim.godDefeatedAt = summary.at;
+        claim.godRewardGameId = summary.gameId;
+        claim.updatedAt = now;
+        int claimed = statsMapper.update(
+                claim,
+                new UpdateWrapper<CofUserStats>()
+                        .eq("stats_id", statsId)
+                        .isNull("god_defeated_at"));
+        if (claimed != 1) {
             return;
         }
 
-        Map<String, Object> defeated = parseDefeatedComputers(stats.defeatedComputers);
+        CofUserStats stats = statsMapper.selectById(statsId);
+        Map<String, Object> defeated = new HashMap<>(parseDefeatedComputers(
+                stats != null ? stats.defeatedComputers : null));
         int previous = ((Number) defeated.getOrDefault(GOD_COMPUTER_ID, 0)).intValue();
         defeated.put(GOD_COMPUTER_ID, previous + 1);
-        try {
-            stats.defeatedComputers = objectMapper.writeValueAsString(defeated);
-        } catch (Exception ex) {
-            stats.defeatedComputers = "{}";
-        }
-        stats.godDefeatedAt = summary.at;
-        stats.godRewardGameId = summary.gameId;
-        stats.updatedAt = System.currentTimeMillis();
-        statsMapper.updateById(stats);
+        updateDefeatedComputers(statsId, stats, defeated);
 
         game.godSlayerAwardWinnerId = winner.clientId;
         winner.godSlayer = true;
+    }
+
+    private void updateDefeatedComputers(
+            String statsId,
+            CofUserStats stats,
+            Map<String, Object> defeated) {
+        String defeatedJson;
+        try {
+            defeatedJson = objectMapper.writeValueAsString(defeated);
+        } catch (Exception ex) {
+            defeatedJson = "{}";
+        }
+        long updatedAt = System.currentTimeMillis();
+        if (stats != null) {
+            stats.defeatedComputers = defeatedJson;
+            stats.updatedAt = updatedAt;
+        }
+        statsMapper.update(
+                null,
+                new UpdateWrapper<CofUserStats>()
+                        .eq("stats_id", statsId)
+                        .set("defeated_computers", defeatedJson)
+                        .set("updated_at", updatedAt));
     }
 }

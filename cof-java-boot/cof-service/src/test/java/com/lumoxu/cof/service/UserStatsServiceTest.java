@@ -1,5 +1,7 @@
 package com.lumoxu.cof.service;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumoxu.cof.domain.entity.CofMatchHistory;
 import com.lumoxu.cof.domain.entity.CofUserStats;
@@ -29,6 +31,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -105,6 +110,7 @@ class UserStatsServiceTest {
         CofUserStats winnerStats = existingStats("winner", "Winner");
         persistedStats.put(winnerStats.statsId, winnerStats);
         when(matchHistoryMapper.insert(any(CofMatchHistory.class))).thenReturn(1);
+        allowAtomicGodClaim();
 
         assertTrue(userStatsService.recordFinishedGame(game));
 
@@ -113,6 +119,30 @@ class UserStatsServiceTest {
         assertEquals("winner", game.godSlayerAwardWinnerId);
         assertTrue(player(game, "winner").godSlayer);
         assertEquals(1, objectMapper.readTree(winnerStats.defeatedComputers).path("computer_god").asInt());
+        verify(statsMapper).update(
+                argThat(update -> update != null
+                        && "winner".equals(update.statsId)
+                        && game.finishedAt.equals(update.godDefeatedAt)
+                        && game.id.equals(update.godRewardGameId)
+                        && update.updatedAt != null),
+                argThat((Wrapper<CofUserStats> wrapper) -> {
+                    String condition = wrapper.getSqlSegment();
+                    return condition.contains("stats_id")
+                            && condition.contains("god_defeated_at")
+                            && condition.contains("IS NULL");
+                }));
+        verify(statsMapper, atLeastOnce()).update(
+                isNull(),
+                argThat((Wrapper<CofUserStats> wrapper) -> {
+                    if (!(wrapper instanceof UpdateWrapper<?> updateWrapper)) {
+                        return false;
+                    }
+                    String sqlSet = updateWrapper.getSqlSet();
+                    return sqlSet != null
+                            && sqlSet.contains("defeated_computers")
+                            && !sqlSet.contains("god_defeated_at")
+                            && !sqlSet.contains("god_reward_game_id");
+                }));
     }
 
     @Test
@@ -123,6 +153,7 @@ class UserStatsServiceTest {
         persistedStats.put(winnerStats.statsId, winnerStats);
         persistedStats.put(otherStats.statsId, otherStats);
         when(matchHistoryMapper.insert(any(CofMatchHistory.class))).thenReturn(1);
+        allowAtomicGodClaim();
 
         assertTrue(userStatsService.recordFinishedGame(game));
 
@@ -138,6 +169,7 @@ class UserStatsServiceTest {
         CofUserStats winnerStats = existingStats("winner", "Winner");
         persistedStats.put(winnerStats.statsId, winnerStats);
         when(matchHistoryMapper.insert(any(CofMatchHistory.class))).thenReturn(1);
+        allowAtomicGodClaim();
 
         assertTrue(userStatsService.recordFinishedGame(game));
         Long firstAwardAt = winnerStats.godDefeatedAt;
@@ -166,6 +198,31 @@ class UserStatsServiceTest {
         assertEquals("old-game", winnerStats.godRewardGameId);
         assertNull(game.godSlayerAwardWinnerId);
         assertFalse(player(game, "winner").godSlayer);
+    }
+
+    @Test
+    void lostAtomicGodClaimDoesNotOverwriteFirstRewardOrAnnounceAward() throws Exception {
+        Game game = godGame(false);
+        CofUserStats winnerStats = existingStats("winner", "Winner");
+        persistedStats.put(winnerStats.statsId, winnerStats);
+        when(matchHistoryMapper.insert(any(CofMatchHistory.class))).thenReturn(1);
+        doAnswer(invocation -> {
+            CofUserStats update = invocation.getArgument(0);
+            if (update == null) {
+                return 1;
+            }
+            winnerStats.godDefeatedAt = 1_500L;
+            winnerStats.godRewardGameId = "first-game";
+            return 0;
+        }).when(statsMapper).update(nullable(CofUserStats.class), any());
+
+        assertTrue(userStatsService.recordFinishedGame(game));
+
+        assertEquals(1_500L, winnerStats.godDefeatedAt);
+        assertEquals("first-game", winnerStats.godRewardGameId);
+        assertNull(game.godSlayerAwardWinnerId);
+        assertFalse(player(game, "winner").godSlayer);
+        assertEquals(0, objectMapper.readTree(winnerStats.defeatedComputers).path("computer_god").asInt());
     }
 
     @Test
@@ -253,5 +310,22 @@ class UserStatsServiceTest {
         stats.defeatedComputers = "{}";
         stats.history = "[]";
         return stats;
+    }
+
+    private void allowAtomicGodClaim() {
+        doAnswer(invocation -> {
+            CofUserStats update = invocation.getArgument(0);
+            if (update == null) {
+                return 1;
+            }
+            CofUserStats persisted = persistedStats.get(update.statsId);
+            if (persisted == null || persisted.godDefeatedAt != null) {
+                return 0;
+            }
+            persisted.godDefeatedAt = update.godDefeatedAt;
+            persisted.godRewardGameId = update.godRewardGameId;
+            persisted.updatedAt = update.updatedAt;
+            return 1;
+        }).when(statsMapper).update(nullable(CofUserStats.class), any());
     }
 }

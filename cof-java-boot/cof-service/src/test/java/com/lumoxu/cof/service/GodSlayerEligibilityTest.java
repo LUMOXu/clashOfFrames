@@ -11,8 +11,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GodSlayerEligibilityTest {
 
@@ -20,21 +20,21 @@ class GodSlayerEligibilityTest {
     void allowsDeckOneOnly() {
         Game game = eligibleGame(List.of("1"), Map.of());
 
-        assertSame(winner(game), GodSlayerEligibility.eligibleWinner(game));
+        assertTrue(GodSlayerEligibility.eligible(game));
     }
 
     @Test
     void allowsDeckTwoOnly() {
         Game game = eligibleGame(List.of("2"), Map.of());
 
-        assertSame(winner(game), GodSlayerEligibility.eligibleWinner(game));
+        assertTrue(GodSlayerEligibility.eligible(game));
     }
 
     @Test
     void allowsDecksOneAndTwoTogether() {
         Game game = eligibleGame(List.of("1", "2"), Map.of());
 
-        assertSame(winner(game), GodSlayerEligibility.eligibleWinner(game));
+        assertTrue(GodSlayerEligibility.eligible(game));
     }
 
     @Test
@@ -43,21 +43,21 @@ class GodSlayerEligibilityTest {
                 List.of("1", "2"),
                 Map.of("1", 0, "2", 42, "unselected", -7));
 
-        assertSame(winner(game), GodSlayerEligibility.eligibleWinner(game));
+        assertTrue(GodSlayerEligibility.eligible(game));
     }
 
     @Test
     void rejectsAllowedDeckMixedWithAnotherDeck() {
         Game game = eligibleGame(List.of("1", "3"), Map.of());
 
-        assertNull(GodSlayerEligibility.eligibleWinner(game));
+        assertFalse(GodSlayerEligibility.eligible(game));
     }
 
     @Test
     void rejectsEmptyLibraryIds() {
         Game game = eligibleGame(List.of(), Map.of());
 
-        assertNull(GodSlayerEligibility.eligibleWinner(game));
+        assertFalse(GodSlayerEligibility.eligible(game));
     }
 
     @Test
@@ -65,7 +65,7 @@ class GodSlayerEligibilityTest {
         Game game = eligibleGame(List.of("1"), Map.of());
         winner(game).drawPile.remove(0);
 
-        assertNull(GodSlayerEligibility.eligibleWinner(game));
+        assertFalse(GodSlayerEligibility.eligible(game));
     }
 
     @Test
@@ -73,7 +73,7 @@ class GodSlayerEligibilityTest {
         Game game = eligibleGame(List.of("1"), Map.of());
         god(game).eliminated = false;
 
-        assertNull(GodSlayerEligibility.eligibleWinner(game));
+        assertFalse(GodSlayerEligibility.eligible(game));
     }
 
     @Test
@@ -81,7 +81,7 @@ class GodSlayerEligibilityTest {
         Game game = eligibleGame(List.of("1"), Map.of());
         winner(game).isComputer = true;
 
-        assertNull(GodSlayerEligibility.eligibleWinner(game));
+        assertFalse(GodSlayerEligibility.eligible(game));
     }
 
     @Test
@@ -89,7 +89,7 @@ class GodSlayerEligibilityTest {
         Game game = eligibleGame(List.of("1"), Map.of());
         winner(game).godSlayer = true;
 
-        assertNull(GodSlayerEligibility.eligibleWinner(game));
+        assertFalse(GodSlayerEligibility.eligible(game));
     }
 
     @Test
@@ -97,7 +97,7 @@ class GodSlayerEligibilityTest {
         Game game = eligibleGame(List.of("1"), Map.of());
         game.status = "playing";
 
-        assertNull(GodSlayerEligibility.eligibleWinner(game));
+        assertFalse(GodSlayerEligibility.eligible(game));
     }
 
     @Test
@@ -105,7 +105,7 @@ class GodSlayerEligibilityTest {
         Game game = eligibleGame(List.of("1"), Map.of());
         game.winnerId = "missing";
 
-        assertNull(GodSlayerEligibility.eligibleWinner(game));
+        assertFalse(GodSlayerEligibility.eligible(game));
     }
 
     private static Game eligibleGame(List<String> libraryIds, Map<String, Integer> libraryCopies) {
