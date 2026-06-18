@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -37,6 +38,7 @@ public class AuthService {
     @Transactional
     public Map<String, Object> register(String username, String password) {
         validateCredentials(username, password);
+        validateRegistrationUsername(username);
         if (userMapper.findByUsername(username).isPresent()) {
             throw new CofException(ErrorCode.CONFLICT, "用户名已被占用。");
         }
@@ -120,6 +122,14 @@ public class AuthService {
         }
         if (password == null || password.length() < 6) {
             throw new CofException(ErrorCode.BAD_REQUEST, "密码至少需要 6 个字符。");
+        }
+    }
+
+    private void validateRegistrationUsername(String username) {
+        if (cleanName(username).toLowerCase(Locale.ROOT).contains("god")) {
+            throw new CofException(
+                    ErrorCode.BAD_REQUEST,
+                    "You lowlife. 用户名不能包含 GOD（不区分大小写）。");
         }
     }
 
