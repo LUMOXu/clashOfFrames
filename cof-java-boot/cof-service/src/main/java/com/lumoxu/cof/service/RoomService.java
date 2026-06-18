@@ -275,6 +275,7 @@ public class RoomService {
         assets.add("/audio/sendcard.mp3");
         assets.add("/audio/newgame.wav");
         assets.add("/audio/endgame.wav");
+        assets.add("/audio/cheers.mp3");
         List<Map<String, Object>> libraries = new ArrayList<>();
         for (CardLibraryDto lib : full) {
             if (lib.backUrl != null) {

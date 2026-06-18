@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/authStore";
+import PlayerName from "@/components/PlayerName.vue";
 
 defineProps<{
   title?: string;
@@ -24,7 +25,7 @@ async function onLogout(): Promise<void> {
         <span>Clash of Frames</span>
       </RouterLink>
       <div class="top-actions">
-        <span v-if="auth.player" class="top-username">{{ auth.player.username }}</span>
+        <PlayerName v-if="auth.player" class="top-username" v-bind="auth.player" />
         <RouterLink v-if="route.name !== 'home'" :to="{ name: 'home' }">
           <button type="button">主菜单</button>
         </RouterLink>
@@ -36,7 +37,7 @@ async function onLogout(): Promise<void> {
     </header>
     <slot />
     <footer v-if="!immersive" class="app-footer">
-      Version 1.1, Built by LUMO_Xu &amp; DrowningYu with good vibes.
+      Version 2.0, Built by DrowningYu &amp; LUMO_Xu with good vibes.
     </footer>
   </div>
 </template>

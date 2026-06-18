@@ -5,6 +5,7 @@ import AppShell from "@/components/AppShell.vue";
 import PagePanel from "@/components/PagePanel.vue";
 import { useLobbyStore } from "@/stores/lobbyStore";
 import type { LeaderboardEntry } from "@/types/api";
+import PlayerName from "@/components/PlayerName.vue";
 import { fmtLeaderboardRate, fmtNum, formatDate, isGodComputer } from "@/utils/format";
 import { recordField } from "@/utils/record";
 
@@ -125,7 +126,7 @@ function replayLink(gameId?: string): { name: string; params: { gameId: string }
       <p v-if="lobby.loadingLeaderboard" class="muted">加载中…</p>
       <p v-else-if="loadError" class="error-text">{{ loadError }}</p>
       <template v-else-if="lobby.leaderboard">
-        <h3 class="section-title">玩家排行</h3>
+        <h3 class="section-title">玩家排行（点击表头可以排序）</h3>
         <div class="table-wrap">
           <table>
             <thead>
@@ -171,13 +172,13 @@ function replayLink(gameId?: string): { name: string; params: { gameId: string }
               </tr>
               <tr v-for="(row, index) in players" :key="String(row.statsId ?? index)">
                 <td>
-                  <span
-                    :class="{
-                      'god-name': isGodComputer({ id: String(row.computerId || ''), name: playerLabel(row) }),
-                    }"
-                  >
-                    {{ playerLabel(row) }}
-                  </span>
+                  <PlayerName
+                    :username="playerLabel(row)"
+                    :stats-id="String(row.statsId || '')"
+                    :computer-id="String(row.computerId || '')"
+                    :is-computer="Boolean(row.isComputer)"
+                    :god-slayer="Boolean(row.godSlayer)"
+                  />
                   <span v-if="isComputerRow(row)" class="pill muted">人机</span>
                 </td>
                 <td>{{ recordField(row, "gamesPlayed", 0) }}</td>

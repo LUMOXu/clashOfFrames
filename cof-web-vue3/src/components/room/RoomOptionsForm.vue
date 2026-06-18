@@ -50,10 +50,6 @@ defineProps<{
     <section v-if="showAdvanced" class="panel form-grid advanced-settings">
       <h3>高级选项</h3>
       <label class="toggle-row">
-        <span>卡牌耗尽依然可拍铃</span>
-        <input v-model="settings.allowEmptyBell" type="checkbox" />
-      </label>
-      <label class="toggle-row">
         <span>随机卡背颜色</span>
         <input v-model="settings.randomBacks" type="checkbox" />
       </label>

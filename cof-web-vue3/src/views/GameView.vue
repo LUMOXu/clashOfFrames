@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, toRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 import { useNowTicker } from "@/composables/useNowTicker";
 import { useRoute, useRouter } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
@@ -7,6 +7,7 @@ import GameTable from "@/components/game/GameTable.vue";
 import GameAlert from "@/components/game/GameAlert.vue";
 import GameAnimation from "@/components/game/GameAnimation.vue";
 import GameResultModal from "@/components/game/GameResultModal.vue";
+import GodSlayerRewardModal from "@/components/game/GodSlayerRewardModal.vue";
 import RoomChat from "@/components/RoomChat.vue";
 import { unlockGameAudio } from "@/composables/useGameAudio";
 import { formatGameLog } from "@/utils/formatGameLog";
@@ -14,12 +15,16 @@ import { useTurnBanner } from "@/composables/useTurnBanner";
 import { useAuthStore } from "@/stores/authStore";
 import { useGameStore } from "@/stores/gameStore";
 import { useRoomStore } from "@/stores/roomStore";
+import { useLobbyStore } from "@/stores/lobbyStore";
+import { acknowledgeGodSlayerReward } from "@/api/profile";
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const gameStore = useGameStore();
 const roomStore = useRoomStore();
+const lobbyStore = useLobbyStore();
+const confirmingReward = ref(false);
 const { now: clockNow } = useNowTicker(200);
 
 const gameId = computed(() => String(route.query.gameId || gameStore.currentGame?.id || ""));
@@ -54,6 +59,20 @@ const { turnTitle, turnDetail } = useTurnBanner(game, toRef(() => auth.clientId)
 
 const chatMessages = computed(() => roomStore.currentRoom?.chatMessages ?? []);
 const gameLoading = computed(() => game.value?.status === "loading");
+const pendingReward = computed(() => {
+  const value = lobbyStore.profile?.pendingGodSlayerReward;
+  if (!value || typeof value !== "object") return null;
+  const reward = value as { gameId?: unknown; username?: unknown };
+  return typeof reward.gameId === "string" && typeof reward.username === "string"
+    ? { gameId: reward.gameId, username: reward.username }
+    : null;
+});
+const showGodSlayerReward = computed(
+  () =>
+    game.value?.status === "finished" &&
+    pendingReward.value?.gameId === game.value.id &&
+    auth.clientId === game.value.winnerId,
+);
 
 function onFirstInteraction(): void {
   void unlockGameAudio();
@@ -94,6 +113,14 @@ watch(
   },
 );
 
+watch(
+  () => [game.value?.id, game.value?.status] as const,
+  ([, status]) => {
+    if (status === "finished" && auth.clientId) void lobbyStore.loadProfile(auth.clientId);
+  },
+  { immediate: true },
+);
+
 onMounted(async () => {
   await ensureGameLoaded();
   window.addEventListener("pointerdown", onFirstInteraction, { once: true });
@@ -118,6 +145,17 @@ async function ringBell(): Promise<void> {
 async function onContinue(): Promise<void> {
   if (gameId.value) await gameStore.continueGame(gameId.value);
 }
+
+async function confirmGodSlayerReward(): Promise<void> {
+  if (!auth.clientId || confirmingReward.value) return;
+  confirmingReward.value = true;
+  try {
+    const result = await acknowledgeGodSlayerReward(auth.clientId);
+    lobbyStore.profile = result.profile;
+  } finally {
+    confirmingReward.value = false;
+  }
+}
 </script>
 
 <template>
@@ -136,7 +174,7 @@ async function onContinue(): Promise<void> {
         @ring="ringBell"
       >
         <template #alert>
-          <GameAlert :match="game.lastMatch" />
+          <GameAlert :match="game.lastMatch" :players="game.players || []" />
         </template>
         <template v-if="spectator" #spectator>
           <div class="spectator-badge">观战模式</div>
@@ -172,9 +210,16 @@ async function onContinue(): Promise<void> {
           variant="game"
           :room-id="roomStore.activeRoomId"
           :messages="chatMessages"
+          :players="game?.players || []"
           @sent="roomStore.refreshRoom(roomStore.activeRoomId!)"
         />
       </section>
+      <GodSlayerRewardModal
+        v-if="showGodSlayerReward && pendingReward"
+        :username="pendingReward.username"
+        :confirming="confirmingReward"
+        @confirm="confirmGodSlayerReward"
+      />
     </main>
   </AppShell>
 </template>

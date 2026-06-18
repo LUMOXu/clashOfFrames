@@ -148,6 +148,15 @@ public class UserStatsService {
         return stats != null && !Boolean.TRUE.equals(stats.isComputer) && stats.godDefeatedAt != null;
     }
 
+    public String godSlayerUsername(String statsId) {
+        CofUserStats stats = statsMapper.selectById(statsId);
+        if (stats == null || Boolean.TRUE.equals(stats.isComputer) || stats.godDefeatedAt == null
+                || stats.username == null || stats.username.isBlank()) {
+            throw new CofException(ErrorCode.NOT_FOUND, "未找到 GOD Slayer 用户名。");
+        }
+        return stats.username;
+    }
+
     public Map<String, Object> acknowledgeGodSlayerReward(String statsId) {
         CofUserStats stats = statsMapper.selectById(statsId);
         if (stats == null || stats.godDefeatedAt == null || stats.godRewardGameId == null) {

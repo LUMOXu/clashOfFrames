@@ -12,8 +12,8 @@ import { useRoomStore } from "@/stores/roomStore";
 import { useGameStore } from "@/stores/gameStore";
 import * as roomsApi from "@/api/rooms";
 import type { ComputerPlayer } from "@/types/computer";
-import { isGodComputer } from "@/utils/format";
 import { resolveComputerId } from "@/utils/computerPlayer";
+import PlayerName from "@/components/PlayerName.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -33,6 +33,14 @@ const canStart = computed(() => (room.value?.players?.length ?? 0) >= minPlayers
 const roomFull = computed(
   () => (room.value?.players?.length ?? 0) >= (room.value?.settings?.maxPlayers ?? 8),
 );
+const copiedRoomId = ref(false);
+
+async function copyRoomId(): Promise<void> {
+  if (!roomId.value) return;
+  await navigator.clipboard.writeText(roomId.value);
+  copiedRoomId.value = true;
+  window.setTimeout(() => (copiedRoomId.value = false), 1600);
+}
 
 onMounted(async () => {
   void lobby.loadMeta();
@@ -119,6 +127,7 @@ async function disbandRoom(): Promise<void> {
       <p class="status-line">
         房间 #{{ roomId }} · {{ room?.players?.length ?? 0 }}/{{ room?.settings?.maxPlayers ?? 8 }} 人，至少
         {{ minPlayers }} 人开始。
+        <button type="button" class="pill-btn" @click="copyRoomId">{{ copiedRoomId ? "已复制" : "复制房间 ID" }}</button>
       </p>
 
       <div class="waiting-layout">
@@ -127,9 +136,7 @@ async function disbandRoom(): Promise<void> {
             <div class="player-grid">
             <div v-for="p in room?.playerDetails || []" :key="p.clientId" class="card player-row waiting-player-row">
               <span class="player-label">
-                <span :class="{ 'god-name': isGodComputer(p) || p.username?.toUpperCase() === 'GOD' }">
-                  {{ p.username }}
-                </span>
+                <PlayerName v-bind="p" />
                 <span v-if="p.clientId === room?.hostId" class="pill ok">房主</span>
                 <span v-if="p.isComputer" class="pill muted">人机</span>
                 <span v-if="room?.startVotes?.includes(p.clientId)" class="pill ok">已投票</span>
@@ -189,6 +196,7 @@ async function disbandRoom(): Promise<void> {
           variant="waiting"
           :room-id="roomId"
           :messages="chatMessages"
+          :players="room?.playerDetails || []"
           @sent="onChatSent"
         />
       </div>

@@ -2,6 +2,7 @@ let bellAudio: HTMLAudioElement | null = null;
 let sendCardAudio: HTMLAudioElement | null = null;
 let newGameAudio: HTMLAudioElement | null = null;
 let endGameAudio: HTMLAudioElement | null = null;
+let cheersAudio: HTMLAudioElement | null = null;
 let unlocked = false;
 
 function bell(): HTMLAudioElement {
@@ -34,6 +35,14 @@ function endGame(): HTMLAudioElement {
     endGameAudio.preload = "auto";
   }
   return endGameAudio;
+}
+
+function cheers(): HTMLAudioElement {
+  if (!cheersAudio) {
+    cheersAudio = new Audio("/audio/cheers.mp3");
+    cheersAudio.preload = "auto";
+  }
+  return cheersAudio;
 }
 
 function playClip(factory: () => HTMLAudioElement): void {
@@ -78,9 +87,16 @@ export function playEndGameSound(): void {
   void playClip(endGame);
 }
 
-export function handleAudioEvent(type: string | undefined): void {
+export function playCheersSound(): void {
+  void playClip(cheers);
+}
+
+export function handleAudioEvent(type: string | undefined, selfId?: string, awardWinnerId?: string): void {
   if (type === "ring-bell") playBellSound();
   if (type === "play-card") playCardSound();
   if (type === "new-game") playNewGameSound();
-  if (type === "end-game") playEndGameSound();
+  if (type === "end-game") {
+    if (selfId && awardWinnerId === selfId) playCheersSound();
+    else playEndGameSound();
+  }
 }

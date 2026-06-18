@@ -1,6 +1,6 @@
 package com.lumoxu.cof.api.controller;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.lumoxu.cof.service.FontSubsetService;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -8,31 +8,32 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.nio.file.Path;
 
 @RestController
 @RequestMapping("/api/v1/fonts")
 public class FontController {
 
-    @Value("${cof.resource-root:../cof-resource}")
-    private String resourceRoot;
+    private final FontSubsetService fontSubsetService;
+
+    public FontController(FontSubsetService fontSubsetService) {
+        this.fontSubsetService = fontSubsetService;
+    }
 
     @GetMapping("/god-name-subset.woff2")
-    public ResponseEntity<Resource> godNameSubset(@RequestParam(value = "text", required = false) String text) {
-        Path intro = Path.of(resourceRoot, "assets", "fonts", "source-han-serif-sc-intro.woff2");
-        if (!intro.toFile().exists()) {
-            Path legacy = Path.of(resourceRoot).getParent().resolve("old").resolve("public")
-                    .resolve("assets").resolve("fonts").resolve("source-han-serif-sc-intro.woff2");
-            if (legacy.toFile().exists()) {
-                intro = legacy;
-            }
-        }
-        Resource resource = new FileSystemResource(intro);
+    public ResponseEntity<Resource> godNameSubset() {
+        return font(fontSubsetService.godSubset());
+    }
+
+    @GetMapping("/players/{statsId}.woff2")
+    public ResponseEntity<Resource> playerNameSubset(@org.springframework.web.bind.annotation.PathVariable String statsId) {
+        return font(fontSubsetService.playerSubset(statsId));
+    }
+
+    private ResponseEntity<Resource> font(java.nio.file.Path path) {
+        Resource resource = new FileSystemResource(path);
         return ResponseEntity.ok()
-                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=86400")
+                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000, immutable")
                 .contentType(MediaType.parseMediaType("font/woff2"))
                 .body(resource);
     }

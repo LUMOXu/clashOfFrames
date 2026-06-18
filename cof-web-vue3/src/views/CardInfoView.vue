@@ -56,8 +56,7 @@ function pmvTitle(pmv: CardViewerPmv): string {
   <AppShell>
     <PagePanel title="牌组图鉴">
       <p class="actions-inline">
-        <RouterLink class="action-link" to="/cards/submit">提交新牌组</RouterLink>
-        <RouterLink class="action-link" to="/pmv-index">PMV 索引</RouterLink>
+        <RouterLink class="action-link" to="/cards/submit">提交你的牌组</RouterLink>
       </p>
       <div v-if="!libraries.length" class="muted">没有可展示的卡组。</div>
       <template v-else-if="activeLibrary">

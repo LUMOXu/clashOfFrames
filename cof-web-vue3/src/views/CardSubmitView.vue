@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import ActionToast from "@/components/ActionToast.vue";
 import AppShell from "@/components/AppShell.vue";
@@ -44,6 +44,12 @@ const cardDescription = ref("");
 const backCropRef = ref<InstanceType<typeof ImageCropField> | null>(null);
 const cardCropRef = ref<InstanceType<typeof ImageCropField> | null>(null);
 const showCardUploader = ref(false);
+const showBackPreset = ref(false);
+const presetColor = ref("#d8a928");
+const presetCanvas = ref<HTMLCanvasElement | null>(null);
+const presetUploading = ref(false);
+let presetSource: HTMLImageElement | null = null;
+let presetFrame = 0;
 
 interface PmvGroup {
   pmvId: number;
@@ -203,6 +209,76 @@ async function submitBack(event: MouseEvent): Promise<void> {
   }
 }
 
+function colorChannels(hex: string): [number, number, number] {
+  const value = hex.replace("#", "");
+  return [0, 2, 4].map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16)) as [number, number, number];
+}
+
+async function loadPresetSource(): Promise<HTMLImageElement> {
+  if (presetSource) return presetSource;
+  presetSource = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("默认牌背加载失败"));
+    image.src = "/cards/placeholder.png";
+  });
+  return presetSource;
+}
+
+async function renderBackPreset(): Promise<void> {
+  const canvas = presetCanvas.value;
+  if (!canvas) return;
+  const source = await loadPresetSource();
+  canvas.width = 720;
+  canvas.height = 1087;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("浏览器不支持牌背改色");
+  context.drawImage(source, 0, 0, canvas.width, canvas.height);
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+  const [red, green, blue] = colorChannels(presetColor.value);
+  for (let index = 0; index < pixels.data.length; index += 4) {
+    const luminance = (0.2126 * pixels.data[index] + 0.7152 * pixels.data[index + 1] + 0.0722 * pixels.data[index + 2]) / 255;
+    pixels.data[index] = red + (255 - red) * luminance;
+    pixels.data[index + 1] = green + (255 - green) * luminance;
+    pixels.data[index + 2] = blue + (255 - blue) * luminance;
+  }
+  context.putImageData(pixels, 0, 0);
+}
+
+async function openBackPreset(event: MouseEvent): Promise<void> {
+  if (!activeDeckId.value) {
+    showAt(event, "请先在“我的提交”选择一个卡组", "error");
+    return;
+  }
+  showBackPreset.value = true;
+  await nextTick();
+  await renderBackPreset().catch((error) => onError(event, error));
+}
+
+function schedulePresetRender(): void {
+  window.cancelAnimationFrame(presetFrame);
+  presetFrame = window.requestAnimationFrame(() => void renderBackPreset());
+}
+
+async function uploadBackPreset(event: MouseEvent): Promise<void> {
+  const canvas = presetCanvas.value;
+  if (!activeDeckId.value || !canvas) return;
+  presetUploading.value = true;
+  try {
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((value) => (value ? resolve(value) : reject(new Error("牌背生成失败"))), "image/jpeg", 0.92),
+    );
+    await uploadSubmissionBack(activeDeckId.value, blob);
+    showBackPreset.value = false;
+    showAt(event, "预设牌背已上传到当前卡组", "success");
+    await refreshMine();
+  } catch (error) {
+    onError(event, error);
+  } finally {
+    presetUploading.value = false;
+  }
+}
+
 async function submitPmv(event: MouseEvent): Promise<void> {
   try {
     await createSubmissionPmv({
@@ -322,7 +398,7 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
   <AppShell>
     <PagePanel title="提交卡组">
       <p class="muted">
-        提交的卡组、PMV 与卡牌默认进入待审核；已上线内容修改会进入「修改待审」，通过前对局仍使用旧数据。
+        在本页面提交你的PMV卡组！提交的卡组、PMV 与卡牌需要管理员审核；通过审核后，就可使用新卡组进行对局。
       </p>
 
       <section class="submit-section">
@@ -330,7 +406,7 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
         <div class="form-grid">
           <label>
             卡组名称 <span class="req">*</span>
-            <input v-model="deckName" type="text" maxlength="120" placeholder="全局唯一" />
+            <input v-model="deckName" type="text" maxlength="120" placeholder="你的卡组名称" />
           </label>
           <label class="full-width">
             说明
@@ -341,7 +417,7 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
       </section>
 
       <section class="submit-section">
-        <h3 class="section-title">2. 上传牌背 (720×1087)</h3>
+        <h3 class="section-title">2. 上传牌背</h3>
         <p class="muted">上传到「我的提交」当前选中的卡组。</p>
         <ImageCropField
           ref="backCropRef"
@@ -351,12 +427,34 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
           :output-height="1087"
           hint="牌背竖版 720×1087，提交前会裁剪并压缩为 JPEG。"
         />
-        <button type="button" :disabled="!activeDeckId" @click="submitBack($event)">上传牌背</button>
+        <div class="actions">
+          <button type="button" :disabled="!activeDeckId" @click="submitBack($event)">上传牌背</button>
+          <button type="button" :disabled="!activeDeckId" @click="openBackPreset($event)">使用预设牌背</button>
+        </div>
       </section>
+
+      <div v-if="showBackPreset" class="modal-backdrop" @click.self="showBackPreset = false">
+        <section class="modal-card back-preset-modal">
+          <h3>预设牌背</h3>
+          <p class="muted">白色保持不变，黑色映射为所选颜色，中间亮度线性渐变。</p>
+          <canvas ref="presetCanvas" class="back-preset-preview" aria-label="改色牌背预览"></canvas>
+          <label class="back-preset-color">
+            选择颜色
+            <input v-model="presetColor" type="color" @input="schedulePresetRender" />
+            <code>{{ presetColor }}</code>
+          </label>
+          <div class="actions">
+            <button type="button" @click="showBackPreset = false">取消</button>
+            <button class="primary" type="button" :disabled="presetUploading" @click="uploadBackPreset($event)">
+              {{ presetUploading ? "上传中……" : "确认并上传到当前卡组" }}
+            </button>
+          </div>
+        </section>
+      </div>
 
       <section id="pmv-guide" class="submit-section">
         <h3 class="section-title">3. 创建 PMV</h3>
-        <p class="muted">PMV 名称全局唯一；编号由系统自动分配。上传卡牌时按名称选择 PMV。</p>
+        <p class="muted">请首先在下面的“已有PMV”搜索框中搜索PMV名称，如果有就不用创建。</p>
         <div class="pmv-form">
           <label>
             名称 <span class="req">*</span>
@@ -378,7 +476,7 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
         <button type="button" :disabled="!pmvName.trim()" @click="submitPmv($event)">创建 PMV</button>
 
         <label class="pmv-search-row">
-          已有 PMV（名称 / 作者）
+          已有 PMV（可按名称 / 作者搜索）
           <input v-model="pmvSearch" autocomplete="off" placeholder="搜索..." />
         </label>
         <div class="pmv-index-scroll table-wrap">
@@ -409,8 +507,8 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
       </section>
 
       <section class="submit-section">
-        <h3 class="section-title">4. 上传卡牌 (1500×1080)</h3>
-        <p class="muted">选择要上传到的卡组与 PMV（与下方「我的提交」当前标签同步）。</p>
+        <h3 class="section-title">4. 上传卡牌</h3>
+        <p class="muted">请首先选择你要上传到的卡组与卡牌所属的PMV。之后点击“选择图片并上传”按钮上传卡牌。</p>
         <div class="form-grid">
           <label>
             选择卡组 <span class="req">*</span>
@@ -563,6 +661,32 @@ async function confirmCardUpload(event: MouseEvent): Promise<void> {
 </template>
 
 <style scoped>
+.back-preset-modal {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.back-preset-preview {
+  display: block;
+  width: min(290px, 70vw);
+  aspect-ratio: 720 / 1087;
+  margin: 16px auto;
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+
+.back-preset-color {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.back-preset-color input[type="color"] {
+  width: 64px;
+  height: 42px;
+  padding: 2px;
+}
 .submit-section {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   margin: 1.25rem 0;

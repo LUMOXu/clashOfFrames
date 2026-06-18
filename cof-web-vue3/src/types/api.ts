@@ -16,6 +16,7 @@ export interface PublicPlayer {
   clientId: string;
   username: string;
   statsId?: string;
+  godSlayer?: boolean;
   stats?: PlayerInGameStats;
   connected?: boolean;
   eliminated?: boolean;
@@ -109,6 +110,7 @@ export interface PublicGame {
   lockedUntil?: number;
   lockMessage?: string;
   winnerId?: string;
+  godSlayerAwardWinnerId?: string;
   players?: PublicPlayer[];
   logs?: GameLog[];
   lastMatch?: PublicMatch;
@@ -135,6 +137,8 @@ export interface RoomPlayerDetail {
   username: string;
   isComputer?: boolean;
   computerId?: string;
+  statsId?: string;
+  godSlayer?: boolean;
 }
 
 export interface GameSettings {

@@ -8,6 +8,13 @@ export async function fetchProfile(clientId: string): Promise<ProfileData> {
   });
 }
 
+export async function acknowledgeGodSlayerReward(clientId: string): Promise<ProfileData> {
+  return unwrap<ProfileData>({
+    method: "POST",
+    url: `/profile/${encodeURIComponent(clientId)}/god-slayer-reward/acknowledge`,
+  });
+}
+
 export interface MatchReplayData {
   replay: {
     gameId: string;

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import PagePanel from "@/components/PagePanel.vue";
 import RoomChat from "@/components/RoomChat.vue";
+import PlayerName from "@/components/PlayerName.vue";
 import { getRoomAssets } from "@/api/assets";
 import * as roomsApi from "@/api/rooms";
 import { unlockGameAudio } from "@/composables/useGameAudio";
@@ -36,7 +37,7 @@ const loadingPlayers = computed(() => {
     const pct = isSelf ? Math.max(reported, progress.value) : reported;
     return {
       id: player.clientId,
-      name: player.username || player.clientId,
+      identity: player,
       isSelf,
       ready: Boolean(player.ready || pct >= 100),
       cached: Boolean(player.loadingCached),
@@ -164,7 +165,7 @@ onUnmounted(() => {
       <div v-if="loadingPlayers.length" class="loading-list">
         <div v-for="player in loadingPlayers" :key="player.id" class="loading-player-row">
           <div class="loading-player-head">
-            <strong>{{ player.name }}<span v-if="player.isSelf" class="muted">（你）</span></strong>
+            <strong><PlayerName v-bind="player.identity" /><span v-if="player.isSelf" class="muted">（你）</span></strong>
             <span class="loading-detail">
               {{ player.ready ? "完成" : `${player.pct}%` }}
               <template v-if="player.cached"> · 缓存</template>
@@ -182,6 +183,7 @@ onUnmounted(() => {
         v-if="roomId"
         :room-id="roomId"
         :messages="chatMessages"
+        :players="game?.players || []"
         @sent="roomStore.refreshRoom(roomId)"
       />
     </PagePanel>

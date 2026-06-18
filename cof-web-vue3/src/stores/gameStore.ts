@@ -5,6 +5,7 @@ import * as roomsApi from "@/api/rooms";
 import { applyGameSync } from "@/utils/applyGameSync";
 import { handleAudioEvent } from "@/composables/useGameAudio";
 import { GameSocket } from "@/ws/gameSocket";
+import { useAuthStore } from "@/stores/authStore";
 import type { PublicGame, RoomSummary } from "@/types/api";
 import type { WsMessage } from "@/types/ws";
 
@@ -96,7 +97,7 @@ export const useGameStore = defineStore("game", () => {
       if (type === "AUDIO") {
         const roomId = message.r;
         if (!roomId || !currentGame.value?.roomId || roomId === currentGame.value.roomId) {
-          handleAudioEvent(message.au);
+          handleAudioEvent(message.au, useAuthStore().clientId, message.aw);
         }
       }
     });

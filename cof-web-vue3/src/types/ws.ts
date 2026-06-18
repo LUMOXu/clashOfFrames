@@ -9,6 +9,7 @@ export interface WsMessage {
   lt?: number;
   dn?: boolean;
   au?: string;
+  aw?: string;
   sync?: unknown;
   room?: unknown;
   err?: string;

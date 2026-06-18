@@ -17,6 +17,7 @@ public class WsMessage {
     public Integer lt;
     public Boolean dn;
     public String au;
+    public String aw;
     public JsonNode sync;
     public JsonNode room;
     public String err;

@@ -43,12 +43,14 @@ public class GameController {
         this.userStatsService = userStatsService;
     }
 
-    private void persistIfFinished(String statusBefore, String gameId) {
+    private PublicGame persistIfFinished(String statusBefore, String gameId, PublicGame publicGame) {
         var bundle = gameRuntimeService.getRequired(gameId);
         if (justFinished(statusBefore, bundle.game.status)
                 && userStatsService.recordFinishedGame(bundle.game)) {
             gameRuntimeService.save(bundle.game);
+            return gameRuntimeService.toPublicGame(bundle.game);
         }
+        return publicGame;
     }
 
     @GetMapping("/{gameId}")
@@ -65,12 +67,12 @@ public class GameController {
         String clientId = AuthContext.get().clientId.toString();
         String statusBefore = gameRuntimeService.getRequired(gameId).game.status;
         PublicGame game = gameRuntimeService.playCard(gameId, clientId);
+        game = persistIfFinished(statusBefore, gameId, game);
         JsonNode sync = syncTracker.publishForClient(clientId, gameId, game);
         broadcastService.broadcastGameSync(game);
         broadcastService.broadcastAudio(game.roomId, game.id, "play-card");
         if (justFinished(statusBefore, game.status)) {
-            broadcastService.broadcastAudio(game.roomId, game.id, "end-game");
-            persistIfFinished(statusBefore, gameId);
+            broadcastService.broadcastAudio(game.roomId, game.id, "end-game", game.godSlayerAwardWinnerId);
         }
         return ApiResponse.ok(Map.of("sync", sync));
     }
@@ -80,12 +82,12 @@ public class GameController {
         String clientId = AuthContext.get().clientId.toString();
         String statusBefore = gameRuntimeService.getRequired(gameId).game.status;
         PublicGame game = gameRuntimeService.ringBell(gameId, clientId);
+        game = persistIfFinished(statusBefore, gameId, game);
         JsonNode sync = syncTracker.publishForClient(clientId, gameId, game);
         broadcastService.broadcastGameSync(game);
         broadcastService.broadcastAudio(game.roomId, game.id, "ring-bell");
         if (justFinished(statusBefore, game.status)) {
-            broadcastService.broadcastAudio(game.roomId, game.id, "end-game");
-            persistIfFinished(statusBefore, gameId);
+            broadcastService.broadcastAudio(game.roomId, game.id, "end-game", game.godSlayerAwardWinnerId);
         }
         return ApiResponse.ok(Map.of("sync", sync));
     }

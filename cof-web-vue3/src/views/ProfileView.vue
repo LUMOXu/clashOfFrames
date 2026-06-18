@@ -7,6 +7,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useLobbyStore } from "@/stores/lobbyStore";
 import { fmtNum, fmtPct, formatDate, isGodComputer } from "@/utils/format";
 import { recordField } from "@/utils/record";
+import PlayerName from "@/components/PlayerName.vue";
 
 interface HistoryRow {
   gameId?: string;
@@ -89,7 +90,11 @@ onMounted(async () => {
       <p v-if="lobby.loadingProfile" class="muted">加载中…</p>
       <p v-else-if="loadError" class="error-text">{{ loadError }}</p>
       <template v-else-if="profile">
-        <p class="status-line">当前账号：{{ username }}</p>
+        <p class="status-line">当前账号：<PlayerName
+          :username="username"
+          :stats-id="String(profile.statsId || auth.clientId || '')"
+          :god-slayer="Boolean(profile.godSlayer)"
+        /></p>
 
         <div class="menu-grid profile-stats">
           <div class="card">参与 {{ recordField(profile, "gamesPlayed", 0) }}</div>

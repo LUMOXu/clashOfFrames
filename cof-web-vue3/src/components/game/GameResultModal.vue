@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import GameResultChart from "@/components/game/GameResultChart.vue";
 import type { PublicGame } from "@/types/api";
 import { canContinueAfterResultReplay, resultReplayProgress } from "@/utils/resultChart";
-import { isGodComputer } from "@/utils/format";
+import PlayerName from "@/components/PlayerName.vue";
 
 const props = defineProps<{
   game: PublicGame;
@@ -87,7 +87,7 @@ watch(countdownSec, (sec) => {
   <section class="result-panel modal result-modal">
     <h2>
       祝贺
-      <span v-if="winner" :class="{ 'god-name': isGodComputer(winner) }">{{ winner.username }}</span>
+      <PlayerName v-if="winner" v-bind="winner" />
       <template v-else>无人</template>
       胜利
     </h2>

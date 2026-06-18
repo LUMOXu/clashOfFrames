@@ -53,17 +53,17 @@ async function leaveRoom(): Promise<void> {
           当前房间：{{ roomStore.currentRoom.id }}，状态：{{ statusText(roomStore.currentRoom.status) }}
         </p>
         <div class="game-intro">
-          PMV德国心脏病——点击牌堆出牌，如果观察到翻开的牌有两张来自同一个PMV，立刻按铃！
+          PMV德国心脏病——点击牌堆出牌，如果观察到翻开的牌有两张来自一个PMV，立刻按铃！
         </div>
         <div class="menu-grid">
           <RouterLink class="menu-link" :to="{ name: 'create-room' }">
             <button class="primary" type="button">创建房间</button>
           </RouterLink>
           <RouterLink class="menu-link" :to="{ name: 'join-room' }">
-            <button type="button">加入房间</button>
+            <button type="button">加入房间（按房间号）</button>
           </RouterLink>
           <RouterLink class="menu-link" :to="{ name: 'rooms' }">
-            <button type="button">查看房间</button>
+            <button type="button">加入房间</button>
           </RouterLink>
           <RouterLink class="menu-link" :to="{ name: 'profile' }">
             <button type="button">个人信息</button>
@@ -102,8 +102,8 @@ async function leaveRoom(): Promise<void> {
 
       <section class="panel menu-info-panel">
         <div>
-          <h3>卡组提交</h3>
-          <p class="status-line">在线创建牌组、上传牌背与 PMV 帧（待审核）。</p>
+          <h3>卡组上传</h3>
+          <p class="status-line">在这里上传你自己的牌组！管理员审核通过后即可用于游戏。</p>
         </div>
         <div class="actions">
           <RouterLink class="menu-link" :to="{ name: 'card-submit' }">

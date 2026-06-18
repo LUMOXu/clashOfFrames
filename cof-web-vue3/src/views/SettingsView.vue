@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import PagePanel from "@/components/PagePanel.vue";
+import PlayerName from "@/components/PlayerName.vue";
 import LibraryPicker from "@/components/room/LibraryPicker.vue";
 import RoomOptionsForm from "@/components/room/RoomOptionsForm.vue";
 import { useAuthStore } from "@/stores/authStore";
@@ -98,19 +99,18 @@ async function transfer(): Promise<void> {
     <div v-if="saveToast" class="settings-save-toast" role="status">{{ saveToast }}</div>
     <PagePanel :title="transferMode ? '转让房主' : '房间设置'">
       <template v-if="transferMode">
-        <label>
-          新房主
-          <select v-model="newHostId">
-            <option value="">选择玩家</option>
-            <option
-              v-for="p in (roomStore.currentRoom?.playerDetails || []).filter((player) => !player.isComputer)"
-              :key="p.clientId"
-              :value="p.clientId"
-            >
-              {{ p.username }}
-            </option>
-          </select>
-        </label>
+        <div class="grid">
+          <span>新房主</span>
+          <button
+            v-for="p in (roomStore.currentRoom?.playerDetails || []).filter((player) => !player.isComputer)"
+            :key="p.clientId"
+            type="button"
+            :class="{ primary: newHostId === p.clientId }"
+            @click="newHostId = p.clientId"
+          >
+            <PlayerName v-bind="p" />
+          </button>
+        </div>
         <div class="actions settings-actions">
           <button class="primary" type="button" :disabled="!newHostId" @click="transfer">确认转让</button>
           <RouterLink v-if="roomId" class="action-link" :to="{ name: 'waiting', params: { roomId } }">

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from "vue";
-import type { PublicMatch } from "@/types/api";
+import type { PublicMatch, PublicPlayer } from "@/types/api";
+import PlayerName from "@/components/PlayerName.vue";
 
 const props = defineProps<{
   match?: PublicMatch | null;
+  players?: PublicPlayer[];
 }>();
 
 const visible = ref(false);
@@ -34,16 +36,20 @@ onUnmounted(() => {
 function cardImage(entry: { card?: { imageUrl?: string }; imageUrl?: string }): string {
   return entry.card?.imageUrl || entry.imageUrl || "";
 }
+
+function matchedPlayer(): PublicPlayer | { username?: string } {
+  return props.players?.find((player) => player.clientId === props.match?.by) ?? { username: props.match?.username };
+}
 </script>
 
 <template>
   <div v-if="visible && match" class="game-alert" :class="{ ok: match.type === 'success', fail: match.type === 'fail' }">
     <template v-if="match.type === 'fail'">
       <strong>错误按铃</strong>
-      <div>{{ match.username }} 交出 {{ match.given ?? 0 }} 张牌</div>
+      <div><PlayerName v-bind="matchedPlayer()" /> 交出 {{ match.given ?? 0 }} 张牌</div>
     </template>
     <template v-else>
-      <strong>玩家 {{ match.username }} 匹配成功！</strong>
+      <strong>玩家 <PlayerName v-bind="matchedPlayer()" /> 匹配成功！</strong>
       <div>{{ match.pmvName }}</div>
       <div v-if="match.cards?.length" class="match-preview">
         <img v-for="(entry, i) in match.cards" :key="i" :src="cardImage(entry)" alt="" />

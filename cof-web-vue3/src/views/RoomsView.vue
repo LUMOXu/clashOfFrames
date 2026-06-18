@@ -4,17 +4,21 @@ import { useRouter } from "vue-router";
 import AppShell from "@/components/AppShell.vue";
 import PagePanel from "@/components/PagePanel.vue";
 import { useRoomStore } from "@/stores/roomStore";
+import { useLobbyStore } from "@/stores/lobbyStore";
 import type { RoomSummary } from "@/types/api";
+import PlayerName from "@/components/PlayerName.vue";
+import { recordId, recordName } from "@/utils/record";
 
 const roomStore = useRoomStore();
 const router = useRouter();
+const lobby = useLobbyStore();
 
 onMounted(() => {
-  void roomStore.fetchRooms(true);
+  void Promise.all([roomStore.fetchRooms(false), lobby.loadMeta()]);
 });
 
 const sortedRooms = computed(() =>
-  [...roomStore.rooms].sort((a, b) => {
+  roomStore.rooms.filter((room) => room.settings?.isPublic !== false).sort((a, b) => {
     const rank = (room: RoomSummary) => (room.status === "waiting" ? 0 : room.status === "loading" ? 1 : 2);
     return rank(a) - rank(b) || String(a.id).localeCompare(String(b.id));
   }),
@@ -36,13 +40,22 @@ function statusLabel(status?: string): string {
 function deckLabel(room: RoomSummary): string {
   const ids = room.settings?.libraryIds ?? [];
   if (!ids.length) return "默认卡组";
-  return ids.join("、");
+  return ids
+    .map((id) => {
+      const library = lobby.cardLibraries.find((item, index) => recordId(item, index) === String(id));
+      const copies = room.settings?.libraryCopies?.[id] ?? 1;
+      return `${recordName(library, `卡组 #${id}`)} × ${copies}`;
+    })
+    .join("、");
 }
 
-function voteLabel(room: RoomSummary): string {
-  const votes = room.startVotes?.length ?? 0;
-  if (!votes) return "暂无投票";
-  return `${votes} 票`;
+function rulesLabel(room: RoomSummary): string {
+  const settings = room.settings;
+  const rules = [`${settings?.minPlayers ?? 2}–${settings?.maxPlayers ?? 8} 人`];
+  if (settings?.randomBacks) rules.push("随机牌背");
+  if (settings?.conflictResolution) rules.push("抢铃冲突保护");
+  if (settings?.disconnectProtection) rules.push("断线保护");
+  return rules.join(" · ");
 }
 </script>
 
@@ -60,12 +73,14 @@ function voteLabel(room: RoomSummary): string {
               </span>
             </div>
             <div class="room-meta">
-              <span>人数：{{ room.players?.length ?? 0 }}/{{ room.settings?.maxPlayers ?? 8 }}</span>
-              <span>最低开局：{{ room.settings?.minPlayers ?? 2 }}</span>
-              <span>卡组：{{ deckLabel(room) }}</span>
-              <span>{{ room.settings?.isPublic === false ? "私密" : "公开" }}</span>
-              <span>投票：{{ voteLabel(room) }}</span>
-              <span v-if="room.gameId">对局：{{ room.gameId }}</span>
+              <span class="room-meta-wide">玩家：
+                <template v-for="(player, index) in room.playerDetails || []" :key="player.clientId">
+                  <span v-if="index">、</span><PlayerName v-bind="player" />
+                </template>
+                <span v-if="!room.playerDetails?.length">暂无玩家</span>
+              </span>
+              <span class="room-meta-wide">卡组：{{ deckLabel(room) }}</span>
+              <span class="room-meta-wide">规则：{{ rulesLabel(room) }}</span>
             </div>
           </div>
           <button type="button" @click="joinRoom(room.id)">

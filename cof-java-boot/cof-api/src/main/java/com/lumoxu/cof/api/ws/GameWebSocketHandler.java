@@ -8,6 +8,7 @@ import com.lumoxu.cof.service.GameRuntimeService;
 import com.lumoxu.cof.service.PlayerPresenceService;
 import com.lumoxu.cof.service.RoomService;
 import com.lumoxu.cof.service.SessionService;
+import com.lumoxu.cof.service.UserStatsService;
 import com.lumoxu.cof.service.model.RoomState;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -25,6 +26,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private final WsBroadcastService broadcastService;
     private final PlayerPresenceService playerPresenceService;
     private final GameSyncTracker syncTracker;
+    private final UserStatsService userStatsService;
 
     public GameWebSocketHandler(
             ObjectMapper objectMapper,
@@ -33,7 +35,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             RoomService roomService,
             WsBroadcastService broadcastService,
             PlayerPresenceService playerPresenceService,
-            GameSyncTracker syncTracker) {
+            GameSyncTracker syncTracker,
+            UserStatsService userStatsService) {
         this.objectMapper = objectMapper;
         this.sessionService = sessionService;
         this.gameRuntimeService = gameRuntimeService;
@@ -41,6 +44,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         this.broadcastService = broadcastService;
         this.playerPresenceService = playerPresenceService;
         this.syncTracker = syncTracker;
+        this.userStatsService = userStatsService;
     }
 
     @Override
@@ -118,21 +122,33 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private void handlePlay(WsMessage incoming, TokenPayload auth) throws Exception {
         String statusBefore = gameRuntimeService.getRequired(incoming.g).game.status;
         PublicGame game = gameRuntimeService.playCard(incoming.g, auth.clientId.toString());
+        game = persistIfFinished(statusBefore, incoming.g, game);
         broadcastService.broadcastGameSync(game);
         broadcastService.broadcastAudio(game.roomId, game.id, "play-card");
         if (justFinished(statusBefore, game.status)) {
-            broadcastService.broadcastAudio(game.roomId, game.id, "end-game");
+            broadcastService.broadcastAudio(game.roomId, game.id, "end-game", game.godSlayerAwardWinnerId);
         }
     }
 
     private void handleRing(WsMessage incoming, TokenPayload auth) throws Exception {
         String statusBefore = gameRuntimeService.getRequired(incoming.g).game.status;
         PublicGame game = gameRuntimeService.ringBell(incoming.g, auth.clientId.toString());
+        game = persistIfFinished(statusBefore, incoming.g, game);
         broadcastService.broadcastGameSync(game);
         broadcastService.broadcastAudio(game.roomId, game.id, "ring-bell");
         if (justFinished(statusBefore, game.status)) {
-            broadcastService.broadcastAudio(game.roomId, game.id, "end-game");
+            broadcastService.broadcastAudio(game.roomId, game.id, "end-game", game.godSlayerAwardWinnerId);
         }
+    }
+
+    private PublicGame persistIfFinished(String statusBefore, String gameId, PublicGame publicGame) {
+        var bundle = gameRuntimeService.getRequired(gameId);
+        if (justFinished(statusBefore, bundle.game.status)
+                && userStatsService.recordFinishedGame(bundle.game)) {
+            gameRuntimeService.save(bundle.game);
+            return gameRuntimeService.toPublicGame(bundle.game);
+        }
+        return publicGame;
     }
 
     private static boolean justFinished(String before, String after) {

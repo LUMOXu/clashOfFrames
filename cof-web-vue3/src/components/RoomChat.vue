@@ -2,11 +2,14 @@
 import { nextTick, onMounted, ref, watch } from "vue";
 import * as roomsApi from "@/api/rooms";
 import type { RoomChatMessage } from "@/types/api";
+import type { PlayerIdentity } from "@/utils/playerName";
+import PlayerName from "@/components/PlayerName.vue";
 
 const props = defineProps<{
   roomId: string;
   messages: RoomChatMessage[];
   variant?: "default" | "game" | "waiting";
+  players?: Array<PlayerIdentity & { clientId?: string }>;
 }>();
 
 const emit = defineEmits<{
@@ -43,6 +46,10 @@ async function submit(): Promise<void> {
   draft.value = "";
   emit("sent");
 }
+
+function sender(clientId: string, username: string): PlayerIdentity {
+  return props.players?.find((player) => "clientId" in player && player.clientId === clientId) ?? { username };
+}
 </script>
 
 <template>
@@ -59,11 +66,13 @@ async function submit(): Promise<void> {
       <div v-for="(msg, i) in messages" :key="`${msg.at}-${msg.clientId}-${i}`" class="chat-line">
         <template v-if="variant === 'waiting'">
           <span class="chat-time">{{ new Date(msg.at).toLocaleTimeString("zh-CN", { hour12: false }) }}</span>
-          <span class="chat-user">{{ msg.username }}</span>
+          <span class="chat-user"><PlayerName v-bind="sender(msg.clientId, msg.username)" /></span>
           <span class="chat-text">{{ msg.text }}</span>
         </template>
         <template v-else>
-          [{{ new Date(msg.at).toLocaleTimeString("zh-CN", { hour12: false }) }}][{{ msg.username }}]{{ msg.text }}
+          [{{ new Date(msg.at).toLocaleTimeString("zh-CN", { hour12: false }) }}][<PlayerName
+            v-bind="sender(msg.clientId, msg.username)"
+          />]{{ msg.text }}
         </template>
       </div>
     </div>

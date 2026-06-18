@@ -6,7 +6,7 @@ import { CanvasRenderer } from "echarts/renderers";
 import { computed, onMounted, onUnmounted, shallowRef, useTemplateRef, watch } from "vue";
 import type { PublicGame } from "@/types/api";
 import { buildResultChartOption, getResultChartData } from "@/utils/resultChart";
-import { isGodComputer } from "@/utils/format";
+import PlayerName from "@/components/PlayerName.vue";
 
 echarts.use([LineChart, GridComponent, CanvasRenderer]);
 
@@ -19,6 +19,7 @@ const chartHost = useTemplateRef<HTMLDivElement>("chartHost");
 const chartInstance = shallowRef<echarts.ECharts | null>(null);
 
 const seriesMeta = computed(() => getResultChartData(props.game, props.progressX)?.series ?? []);
+const playersById = computed(() => new Map((props.game.players || []).map((player) => [player.clientId, player])));
 
 function renderChart(): void {
   const host = chartHost.value;
@@ -74,13 +75,7 @@ onUnmounted(() => {
         :class="{ winner: series.winner }"
       >
         <span class="result-swatch" :style="{ background: series.color }" />
-        <span
-          :class="{
-            'god-name': isGodComputer({ id: series.clientId, name: series.username }),
-          }"
-        >
-          {{ series.username }}
-        </span>
+        <PlayerName v-bind="playersById.get(series.clientId) || { username: series.username }" />
       </span>
     </div>
   </div>

@@ -74,8 +74,13 @@ public class WsBroadcastService {
     }
 
     public void broadcastAudio(String roomId, String gameId, String audioType) throws Exception {
+        broadcastAudio(roomId, gameId, audioType, null);
+    }
+
+    public void broadcastAudio(String roomId, String gameId, String audioType, String awardWinnerId) throws Exception {
         WsMessage audio = WsMessage.ofType("AUDIO");
         audio.au = audioType;
+        audio.aw = awardWinnerId;
         audio.r = roomId;
         audio.g = gameId;
         String json = objectMapper.writeValueAsString(audio);
