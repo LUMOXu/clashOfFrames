@@ -14,6 +14,7 @@ import * as roomsApi from "@/api/rooms";
 import type { ComputerPlayer } from "@/types/computer";
 import { resolveComputerId } from "@/utils/computerPlayer";
 import PlayerName from "@/components/PlayerName.vue";
+import { copyText } from "@/utils/clipboard";
 
 const route = useRoute();
 const router = useRouter();
@@ -33,13 +34,12 @@ const canStart = computed(() => (room.value?.players?.length ?? 0) >= minPlayers
 const roomFull = computed(
   () => (room.value?.players?.length ?? 0) >= (room.value?.settings?.maxPlayers ?? 8),
 );
-const copiedRoomId = ref(false);
+const roomIdCopyState = ref<"idle" | "copied" | "failed">("idle");
 
 async function copyRoomId(): Promise<void> {
   if (!roomId.value) return;
-  await navigator.clipboard.writeText(roomId.value);
-  copiedRoomId.value = true;
-  window.setTimeout(() => (copiedRoomId.value = false), 1600);
+  roomIdCopyState.value = (await copyText(roomId.value)) ? "copied" : "failed";
+  window.setTimeout(() => (roomIdCopyState.value = "idle"), 1800);
 }
 
 onMounted(async () => {
@@ -127,7 +127,9 @@ async function disbandRoom(): Promise<void> {
       <p class="status-line">
         房间 #{{ roomId }} · {{ room?.players?.length ?? 0 }}/{{ room?.settings?.maxPlayers ?? 8 }} 人，至少
         {{ minPlayers }} 人开始。
-        <button type="button" class="pill-btn" @click="copyRoomId">{{ copiedRoomId ? "已复制" : "复制房间 ID" }}</button>
+        <button type="button" class="pill-btn" @click="copyRoomId">
+          {{ roomIdCopyState === "copied" ? "已复制" : roomIdCopyState === "failed" ? "复制失败" : "复制房间 ID" }}
+        </button>
       </p>
 
       <div class="waiting-layout">

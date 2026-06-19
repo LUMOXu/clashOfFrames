@@ -36,6 +36,11 @@ mybatis-plus:
     db-config:
       table-prefix:
 
+logging:
+  level:
+    com.lumoxu.cof.service.FontSubsetService: DEBUG
+    com.lumoxu.cof.api.controller.FontController: DEBUG
+
 cof:
   resource-root: ${COF_RESOURCE_ROOT:../cof-resource}
   bootstrap-default-decks: true

@@ -19,7 +19,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq \
   nginx openjdk-17-jdk maven git rsync curl \
-  postgresql postgresql-contrib redis-server
+  postgresql postgresql-contrib redis-server python3-fonttools python3-brotli
 
 log "=== 2. PostgreSQL: user cof / database cof_db ==="
 sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='cof'" | grep -q 1 \
@@ -40,6 +40,12 @@ else
   git clone --depth 1 -b "$BRANCH" git@github.com:LUMOXu/clashOfFrames.git "${NEW_ROOT}"
 fi
 
+fi
+
+if ! python3 -c 'import fontTools.subset' >/dev/null 2>&1; then
+  log "=== Installing fontTools for dynamic name subsets ==="
+  apt-get update -qq
+  apt-get install -y -qq python3-fonttools python3-brotli
 fi
 
 log "=== 4. Migrate assets from old project (${OLD_DIR}) ==="

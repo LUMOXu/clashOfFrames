@@ -116,7 +116,7 @@ onMounted(async () => {
             class="card"
             :class="{ 'god-name': isGodComputer(computer) }"
           >
-            {{ computer.name }}：{{ defeatedCount(computer.id) }}
+            <PlayerName :username="computer.name" :computer-id="computer.id" is-computer />：{{ defeatedCount(computer.id) }}
           </div>
         </div>
 

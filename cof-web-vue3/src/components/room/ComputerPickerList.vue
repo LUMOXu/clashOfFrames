@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import type { ComputerPlayer } from "@/types/computer";
 import { fmtNum, fmtPct, isGodComputer } from "@/utils/format";
+import PlayerName from "@/components/PlayerName.vue";
 
 const props = defineProps<{
   computers: ComputerPlayer[];
@@ -29,7 +30,7 @@ const available = computed(() =>
       :class="{ 'god-computer': isGodComputer(computer) }"
     >
       <div class="computer-info">
-        <strong :class="{ 'god-name': isGodComputer(computer) }">{{ computer.name }}</strong>
+        <strong><PlayerName :username="computer.name" :computer-id="computer.id" is-computer /></strong>
         <div v-if="computer.description" class="muted">{{ computer.description }}</div>
         <div class="computer-stats">
           <span>
