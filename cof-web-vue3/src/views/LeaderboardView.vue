@@ -6,7 +6,7 @@ import PagePanel from "@/components/PagePanel.vue";
 import { useLobbyStore } from "@/stores/lobbyStore";
 import type { LeaderboardEntry } from "@/types/api";
 import PlayerName from "@/components/PlayerName.vue";
-import { fmtLeaderboardRate, fmtNum, formatDate, isGodComputer } from "@/utils/format";
+import { fmtLeaderboardRate, fmtNum, formatDate } from "@/utils/format";
 import { recordField } from "@/utils/record";
 
 const lobby = useLobbyStore();
@@ -44,8 +44,7 @@ const matches = computed(() => sortRows(lobby.leaderboard?.matches ?? [], matchS
 const computerColumns = computed(() =>
   lobby.computerPlayers.map((computer) => ({
     id: computer.id,
-    label: `胜 ${computer.name}`,
-    isGod: isGodComputer(computer),
+    name: computer.name,
   })),
 );
 
@@ -158,10 +157,9 @@ function replayLink(gameId?: string): { name: string; params: { gameId: string }
                   <button
                     type="button"
                     class="sort-btn"
-                    :class="{ 'god-name': col.isGod }"
                     @click="toggleSort('players', `defeated_${col.id}`)"
                   >
-                    {{ col.label }}
+                    胜 <PlayerName :username="col.name" :computer-id="col.id" is-computer />
                   </button>
                 </th>
               </tr>

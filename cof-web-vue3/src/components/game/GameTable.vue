@@ -96,7 +96,11 @@ function displayCardsFor(playerId: string) {
         <div class="count">
           未出 {{ item.player.drawCount ?? 0 }} | 已出 {{ item.player.displayCount ?? 0 }}
         </div>
-        <slot name="turn-banner" :player="item.player" :is-current="currentId === item.player.clientId" />
+        <slot
+          name="turn-banner"
+          :player="playerMap.get(item.player.clientId) || item.player"
+          :is-current="currentId === item.player.clientId"
+        />
       </div>
     </div>
     <div class="pile-layer draw-layer">

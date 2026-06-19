@@ -9,6 +9,7 @@ import GameAnimation from "@/components/game/GameAnimation.vue";
 import GameResultModal from "@/components/game/GameResultModal.vue";
 import GodSlayerRewardModal from "@/components/game/GodSlayerRewardModal.vue";
 import RoomChat from "@/components/RoomChat.vue";
+import PlayerName from "@/components/PlayerName.vue";
 import { unlockGameAudio } from "@/composables/useGameAudio";
 import { formatGameLog } from "@/utils/formatGameLog";
 import { useTurnBanner } from "@/composables/useTurnBanner";
@@ -55,7 +56,7 @@ const canRing = computed(
   () => Boolean(self.value && game.value?.status === "playing" && !self.value.eliminated && !locked.value),
 );
 
-const { turnTitle, turnDetail } = useTurnBanner(game, toRef(() => auth.clientId), locked);
+const { turnDetail } = useTurnBanner(game, toRef(() => auth.clientId), locked);
 
 const chatMessages = computed(() => roomStore.currentRoom?.chatMessages ?? []);
 const gameLoading = computed(() => game.value?.status === "loading");
@@ -181,7 +182,8 @@ async function confirmGodSlayerReward(): Promise<void> {
         </template>
         <template #turn-banner="{ player, isCurrent }">
           <div v-if="isCurrent && game?.status === 'playing'" class="turn-banner">
-            <strong>{{ turnTitle(player, isCurrent) }}</strong>
+            <strong v-if="player.clientId === auth.clientId">轮到你出牌</strong>
+            <strong v-else>轮到 <PlayerName v-bind="player" /> 出牌</strong>
             <span v-if="turnDetail(player, isCurrent)" class="turn-detail">{{ turnDetail(player, isCurrent) }}</span>
           </div>
         </template>
