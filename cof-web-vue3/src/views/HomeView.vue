@@ -60,7 +60,7 @@ async function leaveRoom(): Promise<void> {
             <button class="primary" type="button">创建房间</button>
           </RouterLink>
           <RouterLink class="menu-link" :to="{ name: 'join-room' }">
-            <button type="button">加入房间（按房间号）</button>
+            <button type="button">加入房间（按ID）</button>
           </RouterLink>
           <RouterLink class="menu-link" :to="{ name: 'rooms' }">
             <button type="button">加入房间</button>

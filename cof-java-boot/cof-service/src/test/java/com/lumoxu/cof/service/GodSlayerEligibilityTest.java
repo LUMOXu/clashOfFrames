@@ -64,6 +64,7 @@ class GodSlayerEligibilityTest {
     void rejectsWinnerWithOnlyTwoCards() {
         Game game = eligibleGame(List.of("1"), Map.of());
         winner(game).drawPile.remove(0);
+        game.discardedCards += 1;
 
         assertFalse(GodSlayerEligibility.eligible(game));
     }
@@ -108,6 +109,22 @@ class GodSlayerEligibilityTest {
         assertFalse(GodSlayerEligibility.eligible(game));
     }
 
+    @Test
+    void rejectsExactlyOneHundredFiftyTableCards() {
+        Game game = eligibleGame(List.of("1"), Map.of());
+        game.discardedCards = 147;
+
+        assertFalse(GodSlayerEligibility.eligible(game));
+    }
+
+    @Test
+    void allowsOneHundredFiftyOneTableCards() {
+        Game game = eligibleGame(List.of("1"), Map.of());
+        game.discardedCards = 148;
+
+        assertTrue(GodSlayerEligibility.eligible(game));
+    }
+
     private static Game eligibleGame(List<String> libraryIds, Map<String, Integer> libraryCopies) {
         Game game = new Game();
         game.status = "finished";
@@ -127,6 +144,7 @@ class GodSlayerEligibilityTest {
 
         game.players = new ArrayList<>(List.of(winner, god));
         game.winnerId = winner.clientId;
+        game.discardedCards = 148;
         return game;
     }
 

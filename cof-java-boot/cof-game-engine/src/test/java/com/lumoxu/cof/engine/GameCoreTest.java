@@ -91,10 +91,35 @@ class GameCoreTest {
         assertEquals(2, settings.minPlayers);
         assertEquals(2, settings.maxPlayers);
         assertEquals(List.of("lib"), settings.libraryIds);
-        assertEquals(Map.of("lib", 2), settings.libraryCopies);
+        assertEquals(Map.of("lib", 4), settings.libraryCopies);
         assertEquals("manual", settings.startVoteThresholdMode);
         assertEquals(8, settings.startVoteThreshold);
         assertTrue(settings.conflictResolution);
+    }
+
+    @Test
+    void sharesTwoHundredSixteenCardBudgetAcrossLibraries() {
+        GameSettings input = new GameSettings();
+        input.libraryIds = List.of("a", "b");
+        input.libraryCopies = Map.of("a", 3, "b", 3);
+
+        GameSettings settings = GameCore.normalizeSettings(
+                input, List.of("a", "b"), Map.of("a", 60, "b", 40));
+
+        assertEquals(List.of("a", "b"), settings.libraryIds);
+        assertEquals(Map.of("a", 2, "b", 2), settings.libraryCopies);
+    }
+
+    @Test
+    void allowsSingleLibraryToExceedFormerOneHundredTwentyCardLimit() {
+        GameSettings input = new GameSettings();
+        input.libraryIds = List.of("small");
+        input.libraryCopies = Map.of("small", 99);
+
+        GameSettings settings = GameCore.normalizeSettings(
+                input, List.of("small"), Map.of("small", 10));
+
+        assertEquals(Map.of("small", 21), settings.libraryCopies);
     }
 
     @Test

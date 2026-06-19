@@ -25,7 +25,7 @@ onUnmounted(() => {
   <div class="god-reward-modal" role="dialog" aria-modal="true" aria-labelledby="god-slayer-title">
     <section class="god-reward-panel">
       <h2 id="god-slayer-title">恭喜！！！</h2>
-      <p>你击败了帧封相对之神，胜天至少三子！以后，你的名字会以更醒目的样式出现在所有玩家列表和对局里！</p>
+      <p>你在超过150张牌的史诗级对局中，击败了帧封相对之神！以后，你的名字会以更醒目的样式出现在所有玩家列表和对局里！</p>
       <p>
         请截图这个页面发给页面下方的作者，领取<strong>弑神纪念奖励——一份CSBC'25的PMV静帧扑克牌</strong>！
       </p>

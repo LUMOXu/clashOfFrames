@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/authStore";
-import { GOD_USERNAME_HINT, godUsernameError } from "@/utils/username";
+import { godUsernameError } from "@/utils/username";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -78,7 +78,6 @@ async function submitRegister(): Promise<void> {
           <p class="auth-warning">这是一个娱乐项目，请不要用你常用的密码以防止数据泄露。</p>
           <label>用户名
             <input v-model="regUser" maxlength="24" required autocomplete="username" />
-            <small class="muted">{{ GOD_USERNAME_HINT }}</small>
           </label>
           <label>密码
             <input v-model="regPass" type="password" minlength="6" required autocomplete="new-password" />

@@ -28,12 +28,30 @@ public final class GodSlayerEligibility {
         if (!godEliminated) {
             return false;
         }
+        if (tableCardCount(game) <= 150) {
+            return false;
+        }
 
         Player winner = winner(game);
         return winner != null
                 && !winner.isComputer
                 && winner.drawPile.size() >= 3
                 && !winner.godSlayer;
+    }
+
+    static int tableCardCount(Game game) {
+        if (game == null || game.players == null) {
+            return 0;
+        }
+        int cards = Math.max(0, game.discardedCards);
+        for (Player player : game.players) {
+            if (player == null) {
+                continue;
+            }
+            cards += player.drawPile != null ? player.drawPile.size() : 0;
+            cards += player.displayPile != null ? player.displayPile.size() : 0;
+        }
+        return cards;
     }
 
     static Player winner(Game game) {

@@ -2,7 +2,12 @@
 import { computed } from "vue";
 import type { GameSettings } from "@/types/api";
 import type { CardLibraryMeta } from "@/types/computer";
-import { libraryCopyLimit } from "@/utils/format";
+import {
+  MAX_ROOM_CARDS,
+  canAddLibrary,
+  maxCopiesWithinRoomLimit,
+  selectedCardTotal,
+} from "@/utils/libraryCardLimit";
 
 const props = defineProps<{
   libraries: CardLibraryMeta[];
@@ -11,14 +16,7 @@ const props = defineProps<{
 
 const selected = computed(() => new Set(props.settings.libraryIds ?? []));
 
-const cardTotal = computed(() =>
-  props.libraries
-    .filter((lib) => selected.value.has(lib.id))
-    .reduce((sum, lib) => {
-      const copies = props.settings.libraryCopies?.[lib.id] ?? 1;
-      return sum + (lib.cardCount ?? 0) * copies;
-    }, 0),
-);
+const cardTotal = computed(() => selectedCardTotal(props.libraries, props.settings));
 
 function toggleLibrary(id: string, checked: boolean): void {
   const ids = props.settings.libraryIds ?? [];
@@ -39,14 +37,15 @@ function copyValue(lib: CardLibraryMeta): number {
 
 function setCopy(lib: CardLibraryMeta, value: number): void {
   if (!props.settings.libraryCopies) props.settings.libraryCopies = {};
-  const max = libraryCopyLimit(lib);
+  const max = maxCopiesWithinRoomLimit(props.libraries, props.settings, lib);
   props.settings.libraryCopies[lib.id] = Math.max(1, Math.min(max, value || 1));
 }
 </script>
 
 <template>
   <section class="panel">
-    <h3>卡牌库 <span class="pill">当前 {{ cardTotal }} 张</span></h3>
+    <h3>卡牌库 <span class="pill">当前 {{ cardTotal }} / {{ MAX_ROOM_CARDS }} 张</span></h3>
+    <p v-if="cardTotal > MAX_ROOM_CARDS" class="error-text">总卡牌数不能超过 {{ MAX_ROOM_CARDS }} 张，请减少份数。</p>
     <div class="library-list">
       <label v-for="lib in libraries" :key="lib.id" class="library-row">
         <span>
@@ -57,13 +56,14 @@ function setCopy(lib: CardLibraryMeta, value: number): void {
           <input
             type="checkbox"
             :checked="selected.has(lib.id)"
+            :disabled="!selected.has(lib.id) && !canAddLibrary(libraries, settings, lib)"
             @change="toggleLibrary(lib.id, ($event.target as HTMLInputElement).checked)"
           />
           <input
             class="copy-input"
             type="number"
             min="1"
-            :max="libraryCopyLimit(lib)"
+            :max="maxCopiesWithinRoomLimit(libraries, settings, lib)"
             :value="copyValue(lib)"
             :disabled="!selected.has(lib.id)"
             aria-label="复制份数"

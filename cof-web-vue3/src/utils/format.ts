@@ -56,8 +56,3 @@ export function isGodComputer(computer: {
       .toUpperCase() === "GOD"
   );
 }
-
-export function libraryCopyLimit(lib: { cardCount?: number }): number {
-  const cardCount = Math.max(1, Number(lib.cardCount) || 1);
-  return Math.max(1, Math.floor(120 / cardCount));
-}

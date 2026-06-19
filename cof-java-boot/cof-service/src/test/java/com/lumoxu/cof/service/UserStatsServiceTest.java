@@ -341,7 +341,7 @@ class UserStatsServiceTest {
         players.add(god);
 
         List<com.lumoxu.cof.engine.Card> cards = new ArrayList<>();
-        for (int i = 0; i < players.size() * 3; i++) {
+        for (int i = 0; i < 151; i++) {
             cards.add(new com.lumoxu.cof.engine.Card());
         }
         Game game = GameCore.createGame(room, players, cards, 1_000L, () -> 0.25);

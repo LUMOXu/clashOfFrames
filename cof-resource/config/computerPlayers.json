@@ -8,8 +8,8 @@
       "playDelayStdSeconds": 1,
       "reactionMeanSeconds": 2,
       "reactionStdSeconds": 2,
-      "matchDetectionProbability": 0.1,
-      "falseRingProbability": 0.05
+      "matchDetectionProbability": 0.04,
+      "falseRingProbability": 0.03
     },
     {
       "id": "computer_casual",
@@ -19,7 +19,7 @@
       "playDelayStdSeconds": 0.5,
       "reactionMeanSeconds": 1,
       "reactionStdSeconds": 0.2,
-      "matchDetectionProbability": 0.5,
+      "matchDetectionProbability": 0.4,
       "falseRingProbability": 0.25
     },
     {
@@ -36,13 +36,13 @@
     {
       "id": "computer_hard",
       "name": "背图狂人",
-      "description": "花了一阵把卡组的图背下来了。",
+      "description": "花了一阵把卡组的图背下来了。虽然背了就忘，但只要ta有印象，按铃比谁都快。",
       "playDelayMeanSeconds": 1.8,
       "playDelayStdSeconds": 0.5,
-      "reactionMeanSeconds": 2,
-      "reactionStdSeconds": 1,
-      "matchDetectionProbability": 0.85,
-      "falseRingProbability": 0.01
+      "reactionMeanSeconds": 0.85,
+      "reactionStdSeconds": 0.1,
+      "matchDetectionProbability": 0.25,
+      "falseRingProbability": 0.025
     },
     {
       "id": "computer_master",
@@ -50,7 +50,7 @@
       "description": "游戏的设计者。",
       "playDelayMeanSeconds": 1.5,
       "playDelayStdSeconds": 0,
-      "reactionMeanSeconds": 0.8,
+      "reactionMeanSeconds": 0.9,
       "reactionStdSeconds": 0.5,
       "matchDetectionProbability": 0.97,
       "falseRingProbability": 0.005
@@ -58,10 +58,10 @@
     {
       "id": "computer_god",
       "name": "GOD",
-      "description": "帧封相对之神，如果你能赢祂至少3张牌，会有神秘的惊喜等着你。",
+      "description": "帧封相对之神，如果你能在桌面上超过150张牌的史诗对局中战胜祂，会有神秘的惊喜等着你。（注：达成此成就只能使用基础包/扩展包）",
       "playDelayMeanSeconds": 1.5,
       "playDelayStdSeconds": 0,
-      "reactionMeanSeconds": 0.45,
+      "reactionMeanSeconds": 0.8,
       "reactionStdSeconds": 0.1,
       "matchDetectionProbability": 0.99,
       "falseRingProbability": 0.0005

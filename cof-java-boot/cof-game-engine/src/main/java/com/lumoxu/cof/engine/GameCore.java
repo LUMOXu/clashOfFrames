@@ -24,6 +24,7 @@ import static com.lumoxu.cof.engine.GameConstants.TURN_TIMEOUT_MS;
 public final class GameCore {
 
     public static final GameSettings DEFAULT_SETTINGS = GameSettings.defaultSettings();
+    public static final int MAX_ROOM_CARDS = 216;
 
     private GameCore() {
     }
@@ -84,22 +85,33 @@ public final class GameCore {
                 validSelected.add(id);
             }
         }
-        List<String> libraryIds;
+        List<String> requestedLibraryIds;
         if (!validSelected.isEmpty()) {
-            libraryIds = new ArrayList<>(new LinkedHashSet<>(validSelected));
+            requestedLibraryIds = new ArrayList<>(new LinkedHashSet<>(validSelected));
         } else if (!availableLibraryIds.isEmpty()) {
-            libraryIds = List.of(availableLibraryIds.get(0));
+            requestedLibraryIds = List.of(availableLibraryIds.get(0));
         } else {
-            libraryIds = List.of();
+            requestedLibraryIds = List.of();
         }
 
         Map<String, Integer> inputCopies = merged.libraryCopies != null ? merged.libraryCopies : Map.of();
+        List<String> libraryIds = new ArrayList<>();
         Map<String, Integer> libraryCopies = new HashMap<>();
+        int remainingCards = MAX_ROOM_CARDS;
+        for (String id : requestedLibraryIds) {
+            int cardCount = Math.max(1, libraryCardCounts.getOrDefault(id, 0));
+            if (cardCount <= remainingCards) {
+                libraryIds.add(id);
+                libraryCopies.put(id, 1);
+                remainingCards -= cardCount;
+            }
+        }
         for (String id : libraryIds) {
             int cardCount = Math.max(1, libraryCardCounts.getOrDefault(id, 0));
-            int limit = Math.max(1, (int) Math.floor(120.0 / cardCount));
             int raw = inputCopies.getOrDefault(id, 1);
-            libraryCopies.put(id, Math.max(1, Math.min(limit, raw)));
+            int extraCopies = Math.min(Math.max(0, raw - 1), remainingCards / cardCount);
+            libraryCopies.put(id, 1 + extraCopies);
+            remainingCards -= extraCopies * cardCount;
         }
 
         String thresholdMode = "manual".equals(merged.startVoteThresholdMode) ? "manual" : "auto";

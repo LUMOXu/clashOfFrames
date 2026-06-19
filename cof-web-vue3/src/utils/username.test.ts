@@ -17,6 +17,6 @@ describe("godUsernameError", () => {
   );
 
   it("exports the visible registration hint", () => {
-    expect(GOD_USERNAME_HINT).toBe("用户名不能包含 GOD（不区分大小写）。");
+    expect(GOD_USERNAME_HINT).toBe("用户名不能包含神的名讳");
   });
 });
