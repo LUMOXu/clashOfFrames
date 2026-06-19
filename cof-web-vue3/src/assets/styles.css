@@ -755,6 +755,7 @@ label {
 
 .player-name--god,
 .player-name--slayer {
+  display: inline-block;
   font-family: "Songti SC", "SimSun", serif;
   font-weight: 900;
   position: relative;
@@ -1471,6 +1472,21 @@ th button {
   padding: 4px 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.station-name--god,
+.station-name--slayer {
+  overflow: visible;
+}
+
+.station-name--god > .player-name {
+  animation: god-name-glow 2.8s ease-in-out infinite;
+  color: #ff918c;
+}
+
+.station-name--slayer > .player-name {
+  animation: god-slayer-glow 2.8s ease-in-out infinite;
+  color: #f7d56a;
 }
 
 .piles {

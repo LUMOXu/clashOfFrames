@@ -5,6 +5,7 @@ import { useAnimationClock } from "@/composables/useAnimationClock";
 import type { PublicAnimation, PublicPlayer } from "@/types/api";
 import PlayerName from "@/components/PlayerName.vue";
 import { stackStyle } from "@/utils/cardStack";
+import { playerNameKind } from "@/utils/playerName";
 import { visualDrawPile } from "@/utils/visualDrawPile";
 
 const props = defineProps<{
@@ -87,7 +88,10 @@ function displayCardsFor(playerId: string) {
         }"
         :style="{ left: `${item.x}%`, top: `${item.y}%` }"
       >
-        <div class="station-name">
+        <div
+          class="station-name"
+          :class="`station-name--${playerNameKind(playerMap.get(item.player.clientId) || item.player)}`"
+        >
           <PlayerName v-bind="playerMap.get(item.player.clientId) || item.player" />
           <span v-if="playerMap.get(item.player.clientId)?.isComputer" class="pill muted">人机</span>
           <template v-if="item.player.connected === false">（退出）</template>
