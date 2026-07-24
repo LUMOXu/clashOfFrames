@@ -1,0 +1,17 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/cof_db?currentSchema=public
+    username: cof
+    password: cof
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 2
+
+cof:
+  resource-root: /opt/cof-java/cof-resource
+  bootstrap-default-decks: true

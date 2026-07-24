@@ -13,3 +13,6 @@ cof-java-boot/**/target/
 
 # Generated font cache
 cof-java-boot/**/data/font-cache/
+
+# User uploaded card images - do not track
+cof-resource/cards/
